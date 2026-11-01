@@ -146,10 +146,10 @@ input[type=checkbox]{accent-color:var(--accent);width:18px;height:18px}
 
 /* Synthèse: bloc fixe (KPI + filtres) */
 #syn-fixed{flex:none;display:flex;flex-direction:column;gap:8px;padding-bottom:8px}
-.kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
-.kt{border-radius:14px;padding:8px 9px 7px;display:flex;flex-direction:column;gap:1px;min-width:0}
-.kt b{font-family:var(--font-display);font-weight:800;font-size:14.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
-.kl{font-size:10.5px;color:var(--muted);display:flex;align-items:center;gap:4px;white-space:nowrap}
+.kpi{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.kt{border-radius:16px;padding:11px 12px 10px;display:flex;flex-direction:column;gap:1px;min-width:0}
+.kt b{font-family:var(--font-display);font-weight:800;font-size:21px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.kl{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;white-space:nowrap}
 .kl::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
 .k-avg{background:var(--soft)}.k-avg .kl{color:var(--muted)}
 .k-out{background:var(--tint-out)}.k-out .kl{color:var(--tone-out)}
@@ -166,8 +166,24 @@ input[type=checkbox]{accent-color:var(--accent);width:18px;height:18px}
 .ck input:checked+.bx{background:var(--fg);border-color:var(--fg)}
 .ck input:checked+.bx::after{content:"";position:absolute;left:4px;top:0;width:4px;height:9px;border:solid var(--bg);border-width:0 2px 2px 0;transform:rotate(45deg)}
 .ck input:focus-visible+.bx{outline:2px solid var(--accent);outline-offset:2px}
-.tg{border:1px solid var(--line);background:transparent;border-radius:99px;padding:3px 10px;font-size:12px;color:var(--muted);cursor:pointer;line-height:1.5}
-.tg[aria-pressed="true"]{background:var(--soft);border-color:var(--accent);color:var(--fg);font-weight:600}
+.tg{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--muted);background:var(--surface);border-radius:99px;padding:7px 14px;min-height:36px;font-size:14px;color:var(--fg);cursor:pointer;line-height:1.2}
+.tg::before{content:'';width:16px;height:16px;border-radius:50%;border:2px solid var(--muted);flex:none;box-sizing:border-box}
+.tg[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.tg[aria-pressed="true"]::before{border-color:#fff;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.3l2.6 2.6L12 5.4' fill='none' stroke='%23008B38' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/100% no-repeat}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .tg[aria-pressed="true"]{color:var(--accent-ink)}}
+:root[data-theme="dark"] .tg[aria-pressed="true"]{color:var(--accent-ink)}
+.rst{display:inline-flex;align-items:center;gap:6px;margin-left:auto;border:1.5px solid var(--muted);background:var(--surface);border-radius:99px;padding:7px 12px;min-height:36px;font-size:14px;cursor:pointer}
+.rst svg{width:16px;height:16px;stroke:var(--fg);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.pillb{display:inline-flex;align-items:center;gap:4px;border:1.5px solid var(--muted);background:var(--surface);border-radius:99px;padding:6px 14px 6px 8px;min-height:38px;font-size:15px;font-weight:600;cursor:pointer;flex:none}
+.pillb svg{width:20px;height:20px;stroke:var(--fg);fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.gh{display:flex;align-items:center;gap:8px;width:100%;background:none;border:0;padding:2px 0;text-align:left;cursor:pointer;min-height:40px}
+.gh .ctit{flex:1}
+.gh .chev{width:18px;height:18px;stroke:var(--muted);fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;flex:none;transition:transform .2s}
+.gc.open .gh .chev{transform:rotate(90deg)}
+.gb{margin-top:6px}
+.gh:focus-visible,.pillb:focus-visible,.rst:focus-visible,.tg:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.toast.act{pointer-events:auto;padding:6px 8px 6px 14px;display:flex;align-items:center;gap:10px}
+.toast.act button{background:var(--bg);color:var(--fg);border:0;border-radius:99px;padding:5px 12px;font-weight:600;font-size:13px;cursor:pointer}
 .ico{width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:transparent;display:grid;place-items:center;cursor:pointer;padding:0;margin-left:auto}
 .ico svg{width:14px;height:14px;stroke:var(--muted);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .yrs{display:flex;gap:6px;flex-wrap:wrap}
@@ -253,6 +269,32 @@ a.btn{text-decoration:none;color:inherit;display:inline-flex;align-items:center;
 #login h1{font-family:var(--font-display);font-weight:800;font-size:26px;margin:4px 0 0}
 #login input{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:13px;font-size:16px;text-align:center}
 #login .msg{min-height:20px;font-size:13px;color:var(--warn);margin:0}
+
+/* Banque (V2.0) */
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.small{font-size:13px}
+.blk{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.tag.bk{color:var(--muted)}
+button.pill{border:0;cursor:pointer;font:inherit;font-size:12px}
+.pill.wn{background:var(--tint-dep);color:var(--fg)}.pill.wn i{background:var(--tone-dep)}
+.acc .nm small.wn{color:var(--tone-dep);font-weight:600}
+.bkb{display:flex;align-items:center;gap:10px;background:var(--tint-dep);border-radius:12px;padding:10px 12px;margin-top:8px}
+.bkb div{flex:1;min-width:0}.bkb b{display:block;font-size:14px}.bkb small{display:block;color:var(--muted);font-size:12px;margin-top:1px}
+.h{font-family:var(--font-display);font-size:18px}
+.rb{border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);background:var(--surface);flex:none}
+.rb.warn{background:var(--tint-dep);border-color:transparent}
+.rb.ok{background:var(--tint-in);border-color:transparent}
+.rbt{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.rbt b{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.rb .acts{justify-content:flex-start}
+.eq{display:grid;grid-template-columns:1fr auto;gap:5px 12px;font-size:14px}
+.eq .tot{font-weight:700;border-top:1.5px solid var(--fg);padding-top:6px}
+.acb{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:10px 12px;text-align:left}
+.btn[disabled]{opacity:.5;cursor:default}
+.ln.lk{background:var(--bg)}
+select:disabled,input:disabled{opacity:.75}
+.bkn{background:var(--soft);border-radius:10px;padding:8px 10px;color:var(--fg)}
+#v-rap{padding-bottom:14px}
 </style>
 </head>
 <body>
@@ -262,7 +304,8 @@ a.btn{text-decoration:none;color:inherit;display:inline-flex;align-items:center;
       <div class="logo" aria-hidden="true"><i></i></div>
       <div><div class="kicker">Salaires et trésorerie</div><div class="ttl">CdC Finance<i id="sdot" class="sdot" hidden></i></div></div>
     </div>
-    <div class="hb">
+    <button id="b-back" class="pillb" onclick="go('home')" hidden aria-label="Retour à l'accueil"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Accueil</button>
+    <div class="hb" id="hb">
       <button id="b-undo" class="off" onclick="undo()" aria-label="Annuler la dernière action" title="Annuler"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
       <button id="b-redo" class="off" onclick="redo()" aria-label="Rétablir l'action annulée" title="Rétablir"><svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
     </div>
@@ -271,6 +314,7 @@ a.btn{text-decoration:none;color:inherit;display:inline-flex;align-items:center;
   <section id="v-home" class="view"><div id="fixed"></div><div id="scroll"></div></section>
   <section id="v-syn" class="view" hidden><div id="syn-fixed"><div id="syn-kpi"></div><div id="syn-filt"></div></div><div id="syn-scroll"></div></section>
   <section id="v-set" class="view scr" hidden></section>
+  <section id="v-rap" class="view scr" hidden></section>
 
   <nav class="tabs" aria-label="Navigation">
     <button class="tab" id="t-home" aria-current="page" onclick="go('home')"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>Accueil</button>

@@ -1,11 +1,11 @@
 
 var $=function(i){return document.getElementById(i)};
-var C={ent:{n:'Compte entreprise',v:'var(--c-ent)'},liv:{n:'Livret A',sub:'part Canins des Champs',v:'var(--c-liv)'},esp:{n:'Espèces maison',v:'var(--c-esp)'}};
-var KEYS=['ent','liv','esp'];
+var C={ent:{n:'Compte entreprise',v:'var(--c-ent)'},liv:{n:'Livret A',sub:'part Canins des Champs',v:'var(--c-liv)'},esp:{n:'Espèces maison',v:'var(--c-esp)'},dir:{n:'Reçu directement',sub:'Wero client',v:'var(--c-dir)'}};
+var KEYS=['ent','liv','esp'],SKEYS=['ent','liv','esp','dir'];   /* dir = payé directement à Susan par un client : compte dans le salaire, ne sort d'aucun compte */
 function pad2(n){return n<10?'0'+n:''+n}
 function todayISO(){var d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())}
 var TODAY=todayISO();
-var VERSION='2.1';
+var VERSION='2.2';
 var DEF_DATE='2026-08-31';
 var S={
   initDate:DEF_DATE,init:{ent:0,liv:0,esp:0},deps:[],sorties:[],exps:[],noauto:[],bk:{ok:'',cls:{},rules:{},keep:[]},
@@ -73,7 +73,7 @@ function sumL(x){var t=0;x.lines.forEach(function(l){t+=l.m});return t}
 
 function bal(){
   var b={ent:S.init.ent,liv:S.init.liv,esp:S.init.esp};
-  S.sorties.forEach(function(s){s.lines.forEach(function(l){b[l.c]-=l.m})});
+  S.sorties.forEach(function(s){s.lines.forEach(function(l){if(l.c in b)b[l.c]-=l.m})});
   S.exps.forEach(function(s){s.lines.forEach(function(l){b[l.c]-=l.m})});
   S.deps.forEach(function(d){b[d.c]+=d.m});
   return b;
@@ -158,7 +158,7 @@ function renderList(){
     var id='s:'+m.k,det=cnt(m.n,'sortie','sorties');
     m.list.slice().reverse().forEach(function(s){
       det+='<div class="srt"><div class="l"><div><b>'+fd(s.date)+'</b><span class="amt minus">− '+eur(sumL(s))+'</span></div>'+
-        s.lines.map(function(l){return '<div class="muted"><span>'+dot(l.c)+C[l.c].n+(l.r?'<span class="tag">↻ mensuel</span>':'')+(l.b?'<span class="tag bk">⛓ banque</span>':'')+'</span><span>− '+eur(l.m)+'</span></div>'}).join('')+
+        s.lines.map(function(l){return '<div class="muted"><span>'+dot(l.c)+C[l.c].n+(l.t?' · '+esc(l.t):'')+(l.r?'<span class="tag">↻ mensuel</span>':'')+(l.b?'<span class="tag bk">⛓ banque</span>':'')+'</span><span>− '+eur(l.m)+'</span></div>'}).join('')+
         '</div><button class="btn sm" onclick="openSortie(\''+s.id+'\')">Modifier</button></div>';
     });
     items.push({d:m.list[m.list.length-1].date,h:mrow(id,'Salaire · '+mLabel(m.k),'minus','− '+eur(m.total),!!S.open[id],det)});
@@ -197,7 +197,7 @@ function tog(k){S.open[k]=!S.open[k];renderList()}
 var H=150,PB=34,TOP=40,YW=30;
 function synMonths(){
   var map={},keys=[];
-  function blank(k){return {k:k,out:0,inn:0,tin:0,dx:0,ob:{ent:0,liv:0,esp:0},ib:{ent:0,liv:0,esp:0},xb:{ent:0,liv:0,esp:0},os:[],is:[],xs:[]}}
+  function blank(k){return {k:k,out:0,inn:0,tin:0,dx:0,ob:{ent:0,liv:0,esp:0,dir:0},ib:{ent:0,liv:0,esp:0},xb:{ent:0,liv:0,esp:0},os:[],is:[],xs:[]}}
   function g(k){if(!map[k]){map[k]=blank(k);keys.push(k)}return map[k]}
   S.sorties.forEach(function(s){var m=g(s.date.slice(0,7));s.lines.forEach(function(l){m.ob[l.c]+=l.m});m.out+=sumL(s);m.os.push({d:s.date,v:sumL(s)})});
   S.deps.forEach(function(d){var m=g(d.date.slice(0,7));m.ib[d.c]+=d.m;m.inn+=d.m;if(d.tr)m.tin+=d.m;m.is.push({d:d.date,v:d.m,c:d.c})});
@@ -314,7 +314,7 @@ function balChart(ms,W,sel){
   return '<div class="chart'+(sel?' hs':'')+'" style="height:'+(PH+PB)+'px;width:'+W+'px">'+grid+'<div class="base" style="left:'+YW+'px;right:0;bottom:'+PB+'px"></div><div class="zl" style="left:'+YW+'px;right:0;bottom:'+(PB+mid)+'px"></div>'+plot+'</div>';
 }
 function pick(k){S.sel=(S.sel===k)?null:k;renderSynBody()}
-function provChips(by){var t='';KEYS.forEach(function(k){if(by[k]>0)t+='<span class="chip">'+dot(k)+C[k].n+' '+eur(by[k])+'</span>'});return t}
+function provChips(by){var t='';SKEYS.forEach(function(k){if(by[k]>0)t+='<span class="chip">'+dot(k)+C[k].n+' '+eur(by[k])+'</span>'});return t}
 function capHtml(m,kind){
   var t='';
   if(kind==='out'){
@@ -440,7 +440,8 @@ function renderSynBody(){
 
   var mxO=Math.max(avg,1);ms.forEach(function(m){mxO=Math.max(mxO,m.out)});
   if(S.goalOn)mxO=Math.max(mxO,S.goal);
-  var segO=function(m){return S.prov?KEYS.map(function(k){return {v:m.ob[k],c:C[k].v}}):[{v:m.out,c:'var(--tone-out)'}]};
+  var segO=function(m){return S.prov?SKEYS.map(function(k){return {v:m.ob[k],c:C[k].v}}):[{v:m.out,c:'var(--tone-out)'}]};
+  var hasDir=ms.some(function(m){return m.ob.dir>0});
   var linesO=function(AX){
     var s='<div class="hl a" style="left:'+YW+'px;right:0;bottom:'+(PB+avg/AX*H)+'px"></div>';
     if(S.goalOn)s+='<div class="hl g" style="left:'+YW+'px;right:0;bottom:'+(PB+S.goal/AX*H)+'px"></div>';
@@ -456,7 +457,7 @@ function renderSynBody(){
   function leg(kind){
     var t='';
     if(kind==='bal')t='<span class="chip"><i class="dot" style="background:var(--accent)"></i>Dépôts > sorties</span><span class="chip"><i class="dot" style="background:var(--neg-bar)"></i>Sorties > dépôts</span>';
-    else if(S.prov)KEYS.forEach(function(k){t+='<span class="chip">'+dot(k)+C[k].n+'</span>'});
+    else if(S.prov)(kind==='out'&&hasDir?SKEYS:KEYS).forEach(function(k){t+='<span class="chip">'+dot(k)+C[k].n+'</span>'});
     else{var cc=kind==='out'?'var(--tone-out)':(kind==='in'?'var(--accent)':'var(--tone-dep)');var nn=kind==='out'?'Salaires':(kind==='in'?'Dépôts':'Dépenses');t='<span class="chip"><i class="dot" style="background:'+cc+'"></i>'+nn+'</span>'}
     if(kind==='out'){
       t+='<span class="chip"><i class="ls" style="border-color:var(--tone-avg)"></i>Moyenne '+eur(avg)+' / mois</span>';
@@ -588,7 +589,7 @@ function accEdit(t,id){
 function accDep(k){BACK=k;openDep(k)}
 function openSortie(id){
   if(id){var s=S.sorties.filter(function(x){return x.id===id})[0];
-    M={kind:'s',id:id,date:s.date,lines:s.lines.map(function(l){var o={c:l.c,m:l.m,r:l.r};if(l.b)o.b=l.b;return o})};M.bank=s.lines.some(function(l){return l.b})}
+    M={kind:'s',id:id,date:s.date,lines:s.lines.map(function(l){var o={c:l.c,m:l.m,r:l.r};if(l.b)o.b=l.b;if(l.t)o.t=l.t;return o})};M.bank=s.lines.some(function(l){return l.b})}
   else M={kind:'s',id:null,date:TODAY,lines:[{c:'ent',m:0,r:false}]};
   M.del=false;M.err='';drawS();$('modal').hidden=false;
 }
@@ -607,13 +608,15 @@ function drawS(){
    (x?'<div class="fld"><label for="m-lib" class="lbl">Libellé</label><input type="text" id="m-lib" value="'+esc(M.label||'')+'" placeholder="Vétérinaire, matériel, assurance…" oninput="M.label=this.value"'+(M.tr?dis:'')+'></div>':'');
   M.lines.forEach(function(l,i){
     var lk=!!l.b||(x&&M.bank);
-    h+='<div class="ln'+(lk?' lk':'')+'"><div class="r"><select aria-label="Compte prélevé" onchange="M.lines['+i+'].c=this.value;upd()"'+(lk?dis:'')+'>'+
-      KEYS.map(function(k){return '<option value="'+k+'"'+(l.c===k?' selected':'')+'>'+cname(k)+'</option>'}).join('')+'</select></div>'+
+    var dr=!x&&l.c==='dir';
+    h+='<div class="ln'+(lk?' lk':'')+'"><div class="r"><select aria-label="Compte prélevé" onchange="M.lines['+i+'].c=this.value;if(this.value===\'dir\')M.lines['+i+'].r=false;drawS()"'+(lk?dis:'')+'>'+
+      (x?KEYS:SKEYS).map(function(k){return '<option value="'+k+'"'+(l.c===k?' selected':'')+'>'+(k==='dir'?'Reçu directement (Wero client)':cname(k))+'</option>'}).join('')+'</select></div>'+
       '<div class="r"><input type="text" inputmode="decimal" placeholder="Montant en €" aria-label="Montant" value="'+(l.m||'')+'" oninput="M.lines['+i+'].m=num(this.value);upd()"'+(lk?dis:'')+'></div>'+
-      '<div class="r2">'+(x?'<span>'+(lk?'⛓ banque':'')+'</span>':'<label class="rec"><input type="checkbox" '+(l.r?'checked':'')+' onchange="M.lines['+i+'].r=this.checked"> Salaire récurrent (chaque mois)</label>'+(l.b?'<span class="tag bk">⛓ banque</span>':''))+
+      (dr?'<div class="r"><input type="text" class="m-lt" placeholder="Libellé (ex. Wero client Dupont)" aria-label="Libellé" value="'+esc(l.t||'')+'" oninput="M.lines['+i+'].t=this.value"></div><p class="note">Payé directement à Susan : compte dans son salaire, ne sort d\'aucun compte.</p>':'')+
+      '<div class="r2">'+(x?'<span>'+(lk?'⛓ banque':'')+'</span>':(dr?'<span></span>':'<label class="rec"><input type="checkbox" '+(l.r?'checked':'')+' onchange="M.lines['+i+'].r=this.checked"> Salaire récurrent (chaque mois)</label>')+(l.b?'<span class="tag bk">⛓ banque</span>':''))+
       (M.lines.length>1&&!lk?'<button class="btn sm del" onclick="rmLine('+i+')">Retirer</button>':'')+'</div></div>';
   });
-  if(M.lines.length<3&&!(x&&M.bank))h+='<button class="btn" onclick="addLine()">+ Prélever aussi sur un autre compte</button>';
+  if(M.lines.length<(x?3:4)&&!(x&&M.bank))h+='<button class="btn" onclick="addLine()">'+(x?'+ Prélever aussi sur un autre compte':'+ Ajouter une ligne')+'</button>';
   h+='<div class="recap"><div class="lbl">'+(x?'Dépense totale':'Salaire total')+'</div><div class="big" id="m-tot">0 €</div><div id="m-after"></div></div><p class="err" id="m-err">'+M.err+'</p>'+
     '<div class="acts">'+(M.id&&!M.bank?'<button class="btn del" id="m-del" onclick="delS()">Supprimer</button>':'')+'<button class="btn" onclick="closeM()">Annuler</button><button class="btn pri" onclick="saveS()">Enregistrer</button></div>';
   $('sheet').innerHTML=h;upd();
@@ -622,18 +625,18 @@ function upd(){
   var t=0;M.lines.forEach(function(l){t+=l.m});
   $('m-tot').textContent=eur(t);
   var b=bal();
-  if(M.id){curRec().lines.forEach(function(l){b[l.c]+=l.m})}
-  M.lines.forEach(function(l){b[l.c]-=l.m});
+  if(M.id){curRec().lines.forEach(function(l){if(l.c in b)b[l.c]+=l.m})}
+  M.lines.forEach(function(l){if(l.c in b)b[l.c]-=l.m});
   $('m-after').innerHTML=KEYS.map(function(k){return '<div class="row"><span>'+C[k].n+' après sortie</span><span class="'+(b[k]<0?'neg':'')+'">'+eur(b[k])+'</span></div>'}).join('');
 }
-function addLine(){var u=KEYS.filter(function(k){return !M.lines.some(function(l){return l.c===k})})[0]||'ent';M.lines.push({c:u,m:0,r:false});drawS()}
+function addLine(){var u=(M.kind==='x'?KEYS:SKEYS).filter(function(k){return !M.lines.some(function(l){return l.c===k})})[0]||'ent';M.lines.push({c:u,m:0,r:false});drawS()}
 function rmLine(i){M.lines.splice(i,1);drawS()}
 function saveS(){
   var t=0,x=M.kind==='x';M.lines.forEach(function(l){t+=l.m});
   if(!M.date){M.err='Choisissez une date.';$('m-err').textContent=M.err;return}
   if(x&&!(M.label||'').trim()){M.err='Indiquez le libellé de la dépense.';$('m-err').textContent=M.err;return}
   if(t<=0){M.err='Saisissez au moins un montant.';$('m-err').textContent=M.err;return}
-  var lines=M.lines.filter(function(l){return l.m>0||l.b}).map(function(l){var o={c:l.c,m:l.m,r:!!l.r};if(l.b)o.b=l.b;return o});
+  var lines=M.lines.filter(function(l){return l.m>0||l.b}).map(function(l){var o={c:l.c,m:l.m,r:l.c==='dir'?false:!!l.r};if(l.b)o.b=l.b;if(l.c==='dir'&&(l.t||'').trim())o.t=l.t.trim().slice(0,200);return o});
   if(x){
     hist(M.id?'modification d\'une dépense':'saisie d\'une dépense');
     lines=lines.map(function(l){return {c:l.c,m:l.m}});
@@ -664,13 +667,14 @@ function openDep(c,id){
         '<div class="rrow"><span>Montant</span><span class="plus">+ '+eur2(d.m)+'</span></div>'+(d.t?'<div class="rrow"><span>Libellé</span><span>'+esc(d.t)+'</span></div>':'')+
         '<p class="note bkn">⛓ Vient de la banque : ce mouvement ne se modifie pas.</p><div class="acts"><button class="btn pri" onclick="closeM()">Fermer</button></div>';
       $('modal').hidden=false;return}
-    M={kind:'d',id:id,c:d.c,m:d.m,date:d.date}}
-  else M={kind:'d',id:null,c:(c==='ent'&&bankOn())?'liv':c,m:0,date:TODAY};
+    M={kind:'d',id:id,c:d.c,m:d.m,date:d.date,t:d.t||''}}
+  else M={kind:'d',id:null,c:(c==='ent'&&bankOn())?'liv':c,m:0,date:TODAY,t:''};
   M.del=false;
   var ks=KEYS.filter(function(k){return !(k==='ent'&&bankOn()&&M.c!=='ent')});
   $('sheet').innerHTML='<h2>'+(id?'Modifier le dépôt':'Ajouter un dépôt')+'</h2>'+
    '<div class="fld"><label class="lbl" for="d-c">Compte</label><select id="d-c" onchange="M.c=this.value">'+ks.map(function(k){return '<option value="'+k+'"'+(M.c===k?' selected':'')+'>'+cname(k)+'</option>'}).join('')+'</select></div>'+
    '<div class="fld"><label class="lbl" for="d-m">Montant déposé</label><input type="text" inputmode="decimal" id="d-m" value="'+(M.m||'')+'" placeholder="Montant en €" oninput="M.m=num(this.value)"></div>'+
+   '<div class="fld"><label class="lbl" for="d-t">Libellé (facultatif)</label><input type="text" id="d-t" value="'+esc(M.t)+'" placeholder="ex. Wero client Dupont, espèces pension" oninput="M.t=this.value"></div>'+
    '<div class="fld"><label class="lbl" for="d-d">Date de mise à jour des soldes</label><input type="date" id="d-d" value="'+M.date+'" onchange="M.date=this.value"></div>'+
    '<p class="err" id="m-err"></p><div class="acts">'+(id?'<button class="btn del" id="m-del" onclick="delD()">Supprimer</button>':'')+'<button class="btn" onclick="closeM()">Annuler</button><button class="btn pri" onclick="saveD()">Enregistrer</button></div>';
   $('modal').hidden=false;
@@ -678,8 +682,9 @@ function openDep(c,id){
 function saveD(){
   if(M.m<=0||!M.date){$('m-err').textContent='Saisissez un montant et une date.';return}
   hist(M.id?'modification d\'un dépôt':'ajout d\'un dépôt');
-  if(M.id){var d=S.deps.filter(function(x){return x.id===M.id})[0];d.c=M.c;d.m=M.m;d.date=M.date}
-  else S.deps.push({id:uid('d'),date:M.date,c:M.c,m:M.m});
+  var tt=(M.t||'').trim().slice(0,200);
+  if(M.id){var d=S.deps.filter(function(x){return x.id===M.id})[0];d.c=M.c;d.m=M.m;d.date=M.date;if(tt)d.t=tt;else delete d.t}
+  else{var nd={id:uid('d'),date:M.date,c:M.c,m:M.m};if(tt)nd.t=tt;S.deps.push(nd)}
   S.open['d:'+M.date.slice(0,7)]=true;
   closeM();refresh();
 }
@@ -1083,7 +1088,7 @@ function norm(o){
     init:{ent:+i.ent||0,liv:+i.liv||0,esp:+i.esp||0},
     initDate:o.initDate||DEF_DATE,
     deps:(o.deps||[]).map(function(d){var r={id:d.id,date:d.date,c:d.c,m:+d.m};if(d.b)r.b=d.b;if(d.t)r.t=d.t;if(d.tr)r.tr=d.tr;return r}),
-    sorties:(o.sorties||[]).map(function(s){return {id:s.id,date:s.date,lines:s.lines.map(function(l){var r={c:l.c,m:+l.m,r:!!l.r};if(l.b)r.b=l.b;return r})}}),
+    sorties:(o.sorties||[]).map(function(s){return {id:s.id,date:s.date,lines:s.lines.map(function(l){var r={c:l.c,m:+l.m,r:!!l.r};if(l.b)r.b=l.b;if(l.t)r.t=l.t;return r})}}),
     exps:(o.exps||[]).map(function(x){var r={id:x.id,date:x.date,label:x.label,lines:x.lines.map(function(l){return {c:l.c,m:+l.m}})};if(x.b)r.b=x.b;if(x.tr)r.tr=x.tr;return r}),
     goal:o.goal!=null?+o.goal:1800,goalOn:!!o.goalOn,noauto:(o.noauto||[]).slice(),
     bk:normBk(o.bk)

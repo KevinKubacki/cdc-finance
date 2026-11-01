@@ -1,5 +1,5 @@
 /* CdC Finance — service worker (copie d'abord, mise à jour automatique à chaque nouvelle VERSION) */
-var VERSION = '2.2';
+var VERSION = '2.3';
 var CACHE = 'cdcfin-' + VERSION;
 var FILES = ['./', 'index.html', 'app.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon.png', 'icons/paw.png',

@@ -5,7 +5,7 @@ var KEYS=['ent','liv','esp'],SKEYS=['ent','liv','esp','dir'];   /* dir = payé d
 function pad2(n){return n<10?'0'+n:''+n}
 function todayISO(){var d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())}
 var TODAY=todayISO();
-var VERSION='2.2';
+var VERSION='2.3';
 var DEF_DATE='2026-08-31';
 var S={
   initDate:DEF_DATE,init:{ent:0,liv:0,esp:0},deps:[],sorties:[],exps:[],noauto:[],bk:{ok:'',cls:{},rules:{},keep:[]},
@@ -78,11 +78,17 @@ function bal(){
   S.deps.forEach(function(d){b[d.c]+=d.m});
   return b;
 }
+/* mois du salaire (pm, « AAAA-MM ») : un virement de fin de mois paie le salaire du mois suivant */
+function mAdd(k,n){var p=k.split('-'),y=+p[0],m=+p[1]-1+n;y+=Math.floor(m/12);m=((m%12)+12)%12;return y+'-'+pad2(m+1)}
+function pmCur(iso){return iso.slice(0,7)}
+function pmNext(iso){return mAdd(iso.slice(0,7),1)}
+function spm(s){return s.pm||pmNext(s.date)}
+function pmDef(iso){return +iso.slice(8,10)>=15?pmNext(iso):pmCur(iso)}
 function lastUpd(){var d=S.initDate;S.deps.forEach(function(x){if(x.date>d)d=x.date});return d}
-function byMonth(arr){
+function byMonth(arr,kf){
   var o={},ord=[];
   arr.slice().sort(function(a,b){return a.date<b.date?-1:1}).forEach(function(x){
-    var k=x.date.slice(0,7);
+    var k=kf?kf(x):x.date.slice(0,7);
     if(!o[k]){o[k]={k:k,total:0,n:0,list:[]};ord.push(k)}
     o[k].list.push(x);o[k].n++;o[k].total+=(x.lines?sumL(x):x.m);
   });
@@ -107,7 +113,7 @@ function recNext(){
   var d=nextMonth(src.date),id='r'+d;
   if(S.noauto.indexOf(id)>=0||S.sorties.some(function(x){return x.id===id}))return null;
   var lines=src.lines.filter(function(l){return l.r}).map(function(l){return {c:l.c,m:l.m,r:true}});
-  return {id:id,date:d,lines:lines};
+  return {id:id,date:d,pm:src.pm?mAdd(src.pm,1):pmDef(d),lines:lines};
 }
 function autoRec(){
   var made=0,g=0,n,last='';
@@ -118,7 +124,7 @@ function autoRec(){
       n.lines.forEach(function(l){if(l.c==='ent')bs.lines.forEach(function(x){if(x.c==='ent'&&x.b)x.r=true});else bs.lines.push({c:l.c,m:l.m,r:true})});
       last=bs.date;made++;continue;
     }
-    S.sorties.push({id:n.id,date:n.date,lines:n.lines});last=n.date;made++;
+    S.sorties.push({id:n.id,date:n.date,pm:n.pm,lines:n.lines});last=n.date;made++;
   }
   if(made){refresh();toast(made>1?made+' salaires récurrents ajoutés':'Salaire récurrent du '+fd(last)+' ajouté')}
   return made;
@@ -153,11 +159,11 @@ function hvBar(){
 }
 function renderList(){
   var items=[];
-  var sal=byMonth(S.sorties);
+  var sal=byMonth(S.sorties,spm);
   (HV.s?sal:[]).forEach(function(m){
-    var id='s:'+m.k,det=cnt(m.n,'sortie','sorties');
+    var id='s:'+m.k,det='<p class="cnt">'+m.n+' versement'+(m.n>1?'s':'')+' pour ce salaire</p>';
     m.list.slice().reverse().forEach(function(s){
-      det+='<div class="srt"><div class="l"><div><b>'+fd(s.date)+'</b><span class="amt minus">− '+eur(sumL(s))+'</span></div>'+
+      det+='<div class="srt"><div class="l"><div><b>Versé le '+fd(s.date)+'</b><span class="amt minus">− '+eur(sumL(s))+'</span></div>'+
         s.lines.map(function(l){return '<div class="muted"><span>'+dot(l.c)+C[l.c].n+(l.t?' · '+esc(l.t):'')+(l.r?'<span class="tag">↻ mensuel</span>':'')+(l.b?'<span class="tag bk">⛓ banque</span>':'')+'</span><span>− '+eur(l.m)+'</span></div>'}).join('')+
         '</div><button class="btn sm" onclick="openSortie(\''+s.id+'\')">Modifier</button></div>';
     });
@@ -199,7 +205,7 @@ function synMonths(){
   var map={},keys=[];
   function blank(k){return {k:k,out:0,inn:0,tin:0,dx:0,ob:{ent:0,liv:0,esp:0,dir:0},ib:{ent:0,liv:0,esp:0},xb:{ent:0,liv:0,esp:0},os:[],is:[],xs:[]}}
   function g(k){if(!map[k]){map[k]=blank(k);keys.push(k)}return map[k]}
-  S.sorties.forEach(function(s){var m=g(s.date.slice(0,7));s.lines.forEach(function(l){m.ob[l.c]+=l.m});m.out+=sumL(s);m.os.push({d:s.date,v:sumL(s)})});
+  S.sorties.forEach(function(s){var m=g(spm(s));s.lines.forEach(function(l){m.ob[l.c]+=l.m});m.out+=sumL(s);m.os.push({d:s.date,v:sumL(s)})});
   S.deps.forEach(function(d){var m=g(d.date.slice(0,7));m.ib[d.c]+=d.m;m.inn+=d.m;if(d.tr)m.tin+=d.m;m.is.push({d:d.date,v:d.m,c:d.c})});
   S.exps.forEach(function(x){if(x.tr)return;var m=g(x.date.slice(0,7));x.lines.forEach(function(l){m.xb[l.c]+=l.m});m.dx+=sumL(x);m.xs.push({d:x.date,v:sumL(x),t:x.label})});
   if(!keys.length)return [];
@@ -589,8 +595,8 @@ function accEdit(t,id){
 function accDep(k){BACK=k;openDep(k)}
 function openSortie(id){
   if(id){var s=S.sorties.filter(function(x){return x.id===id})[0];
-    M={kind:'s',id:id,date:s.date,lines:s.lines.map(function(l){var o={c:l.c,m:l.m,r:l.r};if(l.b)o.b=l.b;if(l.t)o.t=l.t;return o})};M.bank=s.lines.some(function(l){return l.b})}
-  else M={kind:'s',id:null,date:TODAY,lines:[{c:'ent',m:0,r:false}]};
+    M={kind:'s',id:id,date:s.date,pm:s.pm,pmSet:true,lines:s.lines.map(function(l){var o={c:l.c,m:l.m,r:l.r};if(l.b)o.b=l.b;if(l.t)o.t=l.t;return o})};M.bank=s.lines.some(function(l){return l.b})}
+  else M={kind:'s',id:null,date:TODAY,pm:pmDef(TODAY),pmSet:false,lines:[{c:'ent',m:0,r:false}]};
   M.del=false;M.err='';drawS();$('modal').hidden=false;
 }
 function openExp(id){
@@ -604,7 +610,8 @@ function drawS(){
   var x=M.kind==='x',lockD=!!M.bank,dis=' disabled';
   var h='<h2>'+(x?(M.tr?'Transfert vers le Livret A':(M.id?'Modifier la dépense':'Dépense ponctuelle')):(M.id?'Modifier le salaire':'Saisir un salaire'))+'</h2>'+
    (M.bank?'<p class="note bkn">⛓ '+(x?'Dépense lue à la banque : date et montant fixés par la banque'+(M.tr?'.':', libellé modifiable.'):'Virement lu à la banque : la ligne Compte entreprise est fixée par la banque. Vous pouvez ajouter la part en espèces ou sur le Livret A.')+'</p>':'')+
-   '<div class="fld"><label for="m-date" class="lbl">'+(x?'Date de la dépense':'Date du salaire')+'</label><input type="date" id="m-date" value="'+M.date+'" onchange="M.date=this.value"'+(lockD?dis:'')+'></div>'+
+   '<div class="fld"><label for="m-date" class="lbl">'+(x?'Date de la dépense':'Date du versement')+'</label><input type="date" id="m-date" value="'+M.date+'" onchange="M.date=this.value'+(x?'':';pmDate()')+'"'+(lockD?dis:'')+'></div>'+
+   (x?'':pmPick())+
    (x?'<div class="fld"><label for="m-lib" class="lbl">Libellé</label><input type="text" id="m-lib" value="'+esc(M.label||'')+'" placeholder="Vétérinaire, matériel, assurance…" oninput="M.label=this.value"'+(M.tr?dis:'')+'></div>':'');
   M.lines.forEach(function(l,i){
     var lk=!!l.b||(x&&M.bank);
@@ -620,6 +627,18 @@ function drawS(){
   h+='<div class="recap"><div class="lbl">'+(x?'Dépense totale':'Salaire total')+'</div><div class="big" id="m-tot">0 €</div><div id="m-after"></div></div><p class="err" id="m-err">'+M.err+'</p>'+
     '<div class="acts">'+(M.id&&!M.bank?'<button class="btn del" id="m-del" onclick="delS()">Supprimer</button>':'')+'<button class="btn" onclick="closeM()">Annuler</button><button class="btn pri" onclick="saveS()">Enregistrer</button></div>';
   $('sheet').innerHTML=h;upd();
+}
+function pmPick(){
+  var c=pmCur(M.date),n=pmNext(M.date),opts=[c,n];
+  if(M.pm&&opts.indexOf(M.pm)<0)opts.push(M.pm);
+  function lab(k){var s=new Date(+k.slice(0,4),+k.slice(5,7)-1,1).toLocaleDateString('fr-FR',{month:'long',year:'numeric'});return s.charAt(0).toUpperCase()+s.slice(1)}
+  return '<div class="fld" id="m-pm"><span class="lbl">Pour le salaire de</span><div class="frow">'+opts.map(function(k){
+    return '<button type="button" class="tg" aria-pressed="'+(M.pm===k)+'" onclick="M.pm=\''+k+'\';M.pmSet=true;drawS()">'+lab(k)+(k===c?' <small>(en cours)</small>':k===n?' <small>(mois d\'après)</small>':'')+'</button>'}).join('')+'</div></div>';
+}
+function pmDate(){
+  if(!M.date)return;
+  if(!M.pmSet||[pmCur(M.date),pmNext(M.date)].indexOf(M.pm)<0){M.pm=pmDef(M.date);M.pmSet=false}
+  var e=$('m-pm');if(e)e.outerHTML=pmPick();
 }
 function upd(){
   var t=0;M.lines.forEach(function(l){t+=l.m});
@@ -645,9 +664,10 @@ function saveS(){
     S.open['x:'+M.date.slice(0,7)]=true;
   }else{
     hist(M.id?'modification d\'un salaire':'saisie d\'un salaire');
-    if(M.id){var s=curRec();s.date=M.date;s.lines=lines}
-    else S.sorties.push({id:uid('s'),date:M.date,lines:lines});
-    S.open['s:'+M.date.slice(0,7)]=true;
+    var pm=M.pm||pmDef(M.date);
+    if(M.id){var s=curRec();s.date=M.date;s.pm=pm;s.lines=lines}
+    else S.sorties.push({id:uid('s'),date:M.date,pm:pm,lines:lines});
+    S.open['s:'+pm]=true;
   }
   closeM();refresh();
 }
@@ -817,7 +837,7 @@ function makeOne(x){
   }
   return 0;
 }
-function makeSal(L){var id='b'+L.id;if(findBy(S.sorties,id))return 0;S.sorties.push({id:id,date:L.date,lines:[{c:'ent',m:Math.abs(L.amt),r:false,b:L.id}]});return 1}
+function makeSal(L){var id='b'+L.id;if(findBy(S.sorties,id))return 0;S.sorties.push({id:id,date:L.date,pm:pmDef(L.date),lines:[{c:'ent',m:Math.abs(L.amt),r:false,b:L.id}]});return 1}
 /* une fois le rapprochement validé : tout ce qui est sûr s'applique tout seul (ids déterministes → pas de doublon entre appareils) */
 function bankApply(){
   if(!S.bk.ok||!BK)return 0;
@@ -1088,7 +1108,7 @@ function norm(o){
     init:{ent:+i.ent||0,liv:+i.liv||0,esp:+i.esp||0},
     initDate:o.initDate||DEF_DATE,
     deps:(o.deps||[]).map(function(d){var r={id:d.id,date:d.date,c:d.c,m:+d.m};if(d.b)r.b=d.b;if(d.t)r.t=d.t;if(d.tr)r.tr=d.tr;return r}),
-    sorties:(o.sorties||[]).map(function(s){return {id:s.id,date:s.date,lines:s.lines.map(function(l){var r={c:l.c,m:+l.m,r:!!l.r};if(l.b)r.b=l.b;if(l.t)r.t=l.t;return r})}}),
+    sorties:(o.sorties||[]).map(function(s){return {id:s.id,date:s.date,pm:(/^\d{4}-\d{2}$/.test(s.pm||'')?s.pm:pmNext(s.date)),lines:s.lines.map(function(l){var r={c:l.c,m:+l.m,r:!!l.r};if(l.b)r.b=l.b;if(l.t)r.t=l.t;return r})}}),
     exps:(o.exps||[]).map(function(x){var r={id:x.id,date:x.date,label:x.label,lines:x.lines.map(function(l){return {c:l.c,m:+l.m}})};if(x.b)r.b=x.b;if(x.tr)r.tr=x.tr;return r}),
     goal:o.goal!=null?+o.goal:1800,goalOn:!!o.goalOn,noauto:(o.noauto||[]).slice(),
     bk:normBk(o.bk)

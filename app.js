@@ -5,7 +5,7 @@ var KEYS=['ent','liv','esp'];
 function pad2(n){return n<10?'0'+n:''+n}
 function todayISO(){var d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())}
 var TODAY=todayISO();
-var VERSION='2.0';
+var VERSION='2.1';
 var DEF_DATE='2026-08-31';
 var S={
   initDate:DEF_DATE,init:{ent:0,liv:0,esp:0},deps:[],sorties:[],exps:[],noauto:[],bk:{ok:'',cls:{},rules:{},keep:[]},
@@ -1243,6 +1243,7 @@ function doLogin(ev){
 /* ---------- Démarrage ---------- */
 function start(){
   refresh();updHist();autoRec();if(S.bk.ok&&BK&&bankApply())refresh();paintSync();
+  if(API&&CODE)SY.need=true;   /* une lecture complète à chaque ouverture : version du script, données de la banque */
   if(BRET)bankReturn();
   else if(API&&!CODE)showLogin();
   if('serviceWorker' in navigator){

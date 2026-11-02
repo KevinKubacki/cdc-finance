@@ -5,7 +5,7 @@ var KEYS=['ent','liv','esp'],SKEYS=['ent','liv','esp','dir'];   /* dir = payé d
 function pad2(n){return n<10?'0'+n:''+n}
 function todayISO(){var d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())}
 var TODAY=todayISO();
-var VERSION='2.5';
+var VERSION='2.6';
 var DEF_DATE='2026-08-31';
 var S={
   initDate:DEF_DATE,init:{ent:0,liv:0,esp:0},deps:[],sorties:[],exps:[],noauto:[],bk:{ok:'',cls:{},rules:{},keep:[]},sim:{},
@@ -1120,9 +1120,11 @@ function simMonths(){
     if(k>appFrom){var a=A[k]||{dep:0,urs:0,chg:0,sal:0};rows.push({k:k,dep:a.dep,urs:a.urs,chg:a.chg,src:'app'});appChg.push(a.chg)}
     else if(hm[k])rows.push({k:k,dep:+hm[k].dep||0,urs:+hm[k].urs||0,chg:null,src:'hist'});
   }
-  var chgAvg=appChg.length?simSum(appChg)/appChg.length:+SP('chg');
-  rows.forEach(function(r){if(r.chg==null)r.chg=chgAvg;r.d=r.dep-r.urs-r.chg;r.m=MOIS(r.k)});
-  return {rows:rows,n:rows.length,nApp:appChg.length,nHist:rows.length-appChg.length,salAvg:sal.length?simSum(sal)/sal.length:null,nSal:sal.length,chgAvg:chgAvg};
+  /* charges des mois de l'historique : réglage « chg » s'il est rempli (0 accepté), sinon moyenne des dépenses lues depuis le départ de l'appli */
+  var appAvg=appChg.length?simSum(appChg)/appChg.length:null,set=S.sim&&S.sim.chg!=null&&S.sim.chg!=='';
+  var chgHist=set?+S.sim.chg:appAvg!=null?appAvg:+SIMDEF.chg,chgAvg=appAvg!=null?appAvg:chgHist;
+  rows.forEach(function(r){if(r.chg==null)r.chg=chgHist;r.d=r.dep-r.urs-r.chg;r.m=MOIS(r.k)});
+  return {rows:rows,n:rows.length,nApp:appChg.length,nHist:rows.length-appChg.length,salAvg:sal.length?simSum(sal)/sal.length:null,nSal:sal.length,chgAvg:chgAvg,chgHist:chgHist,chgSet:set,appAvg:appAvg};
 }
 function simBase(){
   var M=simMonths(),n=M.n||1,dep=simSum(M.rows.map(function(r){return r.dep})),urs=simSum(M.rows.map(function(r){return r.urs}));
@@ -1170,13 +1172,13 @@ function simAlert(){
 function simBand(c,ic,t,s){return '<div class="sband '+c+'"><span class="ic">'+ic+'</span><div><b>'+t+'</b><small>'+s+'</small></div></div>'}
 
 /* ---------- graphiques ---------- */
-function nice2(v){var st=[100,200,250,500,1000,2000,2500,5000,10000,20000,50000],s=st[st.length-1];for(var i=0;i<st.length;i++){if(v/st[i]<=4){s=st[i];break}}return {step:s,max:Math.max(s,Math.ceil(v/s)*s)}}
+function nice2(v,k){k=k||4;var st=[100,200,250,500,1000,2000,2500,5000,10000,20000,50000],s=st[st.length-1];for(var i=0;i<st.length;i++){if(v/st[i]<=k){s=st[i];break}}return {step:s,max:Math.max(s,Math.ceil(v/s)*s)}}
 function kf(n){n=Math.round(n);return Math.abs(n)>=1000?(n/1000).toLocaleString('fr-FR',{maximumFractionDigits:1})+' k':String(n)}
 function axisChart(rows,o){
   var mx=1;rows.forEach(function(r){mx=Math.max(mx,r.v)});if(o.line)mx=Math.max(mx,o.line);
-  var n=nice2(mx),g='';
+  var n=nice2(mx,o.k),g='';
   for(var t=0;t<=n.max+0.1;t+=n.step){var p=(t/n.max*100).toFixed(2)+'%';g+='<div class="sgl" style="bottom:'+p+'"></div><span class="syl" style="bottom:'+p+'">'+kf(t)+'</span>'}
-  var bars=rows.map(function(r){return '<div class="scol" title="'+esc(r.t)+'"><div class="sbar" style="height:'+(r.v/n.max*100).toFixed(2)+'%;background:'+r.c+'"></div></div>'}).join('');
+  var bars=rows.map(function(r){return '<div class="scol'+(o.sel&&o.sel===r.k?' on':'')+'" title="'+esc(r.t)+'"'+(o.tap&&r.k?' role="button" tabindex="0" onclick="'+o.tap+'(\''+r.k+'\')"':'')+'><div class="sbar" style="height:'+(r.v/n.max*100).toFixed(2)+'%;background:'+r.c+'"></div></div>'}).join('');
   var line=o.line?'<div class="sline" style="bottom:'+(o.line/n.max*100).toFixed(2)+'%"><span>'+o.lineLbl+'</span></div>':'';
   return '<div class="sch"><div class="splot" style="height:'+o.H+'px">'+g+bars+line+'</div><div class="sxl">'+rows.map(function(r){return '<span>'+r.m.replace('.','').slice(0,4)+'</span>'}).join('')+'</div></div>';
 }
@@ -1196,6 +1198,16 @@ function trajChart(s,tamp,T0){
   var tl='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(tamp)+'" y2="'+Y(tamp)+'" style="stroke:var(--s-warn)" stroke-width="1.5" stroke-dasharray="5 3"/><text x="'+(W-R)+'" y="'+(Y(tamp)-4)+'" text-anchor="end" style="fill:var(--s-warn);font-size:10px;font-weight:700">tampon</text>';
   var lab='';for(var i=1;i<=N;i++)lab+='<text x="'+((X(i-1)+X(i))/2)+'" y="'+(H-6)+'" text-anchor="middle" style="fill:var(--muted);font-size:9px">'+s.rows[i-1].m.replace('.','').slice(0,4)+'</text>';
   return '<svg class="traj" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Évolution de l\'argent sur les 3 comptes mois par mois">'+neg+g+zone+area+tl+'<polyline points="'+pts+'" style="fill:none;stroke:var(--fg)" stroke-width="2" stroke-linejoin="round"/>'+dots+lab+'</svg>';
+}
+function simBar(k){SU.bar=SU.bar===k?'':k;renderSim()}
+function chgNote(b){var M=b.M;if(!M.nHist)return 'Chiffres réels de l\'appli (banque + saisies).';
+  return '* Mois de l\'onglet Historique : encaissements et Urssaf saisis, charges '+(M.chgSet?'réglées à la main':'estimées (moyenne des dépenses lues depuis le départ de l\'appli)')+' : '+eur(M.chgHist)+' / mois. Réglable dans « Mes réglages ». Les autres mois : chiffres réels de l\'appli.'}
+function barCalc(s,b){
+  var r=b.M.rows.filter(function(x){return x.k===SU.bar})[0];
+  if(!r)return '<p class="note">Touchez une barre pour voir son calcul.</p>';
+  return '<div class="bcalc"><b>'+r.m+' '+r.k.slice(0,4)+'</b> '+(r.src==='hist'?'<span class="note">(onglet Historique)</span>':'<span class="note">(suivi par l\'appli)</span>')+
+    '<div class="kv"><span>Encaissements</span><b class="num">'+eur(r.dep)+'</b><span>Urssaf</span><b class="num">− '+eur(r.urs)+'</b>'+
+    '<span>Autres dépenses'+(r.src==='hist'?' (estimées)':'')+'</span><b class="num">− '+eur(r.chg)+'</b><span><b>Reste pour le salaire</b></span><b class="num">'+eur(r.d)+'</b></div></div>';
 }
 function creux(s,x){
   if(!(s.worst>0))return '<div class="story ok"><b>☀️ Pas de période creuse</b><p>Chaque mois rapporte au moins '+eur(x)+' : le salaire ne puise jamais dans les économies.</p></div>';
@@ -1274,13 +1286,15 @@ function simSal(b){
       'Sur une année, la trésorerie '+(s.year>=0?'gagne <b>~'+eur(Math.round(s.year/100)*100)+'</b>.':'perd <b>~'+eur(Math.round(-s.year/100)*100)+'</b>.')+
       (s.year<0?' Pour tenir ce salaire : ~'+sejours(-s.year/12,b).pm+' séjours de plus par mois.':'')+'</p>'+
     '<h3 class="sh3">Ce que rapporte chaque mois (après Urssaf et charges)</h3>'+
-    axisChart(s.rows.map(function(r){return {v:Math.max(0,r.d),c:r.r>=0?'var(--m-sout)':'var(--short)',m:r.m,t:r.m+' : '+eur(r.d)+' disponibles'}}),{H:150,line:x,lineLbl:'salaire '+eur(x)})+
+    axisChart(s.rows.map(function(r){return {k:r.k,v:Math.max(0,r.d),c:r.r>=0?'var(--m-sout)':'var(--short)',m:r.m,t:r.m+' : '+eur(r.d)+' disponibles'}}),{H:180,k:6,line:x,lineLbl:'salaire '+eur(x),tap:'simBar',sel:SU.bar})+
     '<p class="note"><i class="dot" style="background:var(--m-sout)"></i>le mois paie le salaire &nbsp; <i class="dot" style="background:var(--short)"></i>le mois ne suffit pas : on puise dans les économies</p>'+
+    barCalc(s,b)+
     creux(s,x)+
     '<h3 class="sh3">Si l\'année se répétait : l\'argent sur les 3 comptes</h3>'+trajChart(s,t.tamp,T0)+
     '<p class="note">Chaque point = l\'argent en fin de mois. On part des '+eur(T0)+' d\'aujourd\'hui et on rejoue les derniers mois avec ce salaire. '+(s.worst>0?'La zone grisée = la période creuse. ':'')+'La ligne orange = le tampon d\'alerte ('+eur(t.tamp)+') : rester au-dessus, c\'est être à l\'abri.</p>'+
-    '<details class="info"'+(SU.det?' open':'')+' ontoggle="SU.det=this.open"><summary>ⓘ Voir le détail mois par mois</summary><div class="smonths"><span class="h">Mois</span><span class="h">Dispo</span><span class="h">Après salaire</span>'+
-      s.rows.map(function(r){return '<span>'+r.m+' '+r.k.slice(2,4)+'</span><span class="num">'+eur(r.d)+'</span><span class="num" style="color:'+(r.r>=0?'var(--plus)':'var(--s-warn)')+'">'+sgE(r.r)+'</span>'}).join('')+'</div></details></div>';
+    '<details class="info"'+(SU.det?' open':'')+' ontoggle="SU.det=this.open"><summary>ⓘ Voir le calcul mois par mois</summary><div class="smonths s5"><span class="h">Mois</span><span class="h">Encaissé</span><span class="h">Urssaf</span><span class="h">Charges</span><span class="h">Reste</span>'+
+      s.rows.map(function(r){return '<span>'+r.m+' '+r.k.slice(2,4)+'</span><span class="num">'+eur(r.dep)+'</span><span class="num">− '+eur(r.urs)+'</span><span class="num'+(r.src==='hist'?' muted':'')+'">− '+eur(r.chg)+(r.src==='hist'?'*':'')+'</span><b class="num" style="color:'+(r.r>=0?'var(--plus)':'var(--s-warn)')+'">'+eur(r.d)+'</b>'}).join('')+'</div>'+
+      '<p class="note">'+chgNote(b)+'</p></details></div>';
   // 3. réglages
   var diff=t.tamp-t.conseil,expl='';
   if(t.manual){
@@ -1302,8 +1316,8 @@ function simSal(b){
     '<div class="kv"><span>🟠 Alerte orange sous (tampon)</span><b class="num">'+eur(t.tamp)+'</b><span>🔴 Alerte rouge sous (1 mois de salaire)</span><b class="num">'+eur(t.red)+'</b></div>'+
     '<h3 class="sh3">Séjours</h3>'+inp('prix','Prix moyen d\'un séjour',SIMDEF.prix)+inp('sej','Séjours par mois aujourd\'hui',SIMDEF.sej)+
     '<p class="note">D\'après CdC Manager 2026 : 32 246 € pour 215 séjours (≈ 150 € le séjour, ≈ 18 par mois). Sert à traduire un manque de chiffre d\'affaires en séjours.</p>'+
-    inp('chg','Autres dépenses / mois (mois de l\'historique)',SIMDEF.chg)+
-    '<p class="note">Utilisé seulement pour les mois de l\'onglet Historique, avant que la banque ne donne les vraies dépenses.</p>');
+    inp('chg','Charges / mois pour les mois de l\'historique',b.M.appAvg!=null?Math.round(b.M.appAvg):SIMDEF.chg)+
+    '<p class="note">Les mois de l\'onglet Historique n\'ont que les encaissements et l\'Urssaf : on y retire une estimation des autres dépenses (assurance, frais, fournitures…). '+(b.M.appAvg!=null?'Laisser vide = la moyenne des dépenses lues par la banque depuis le départ de l\'appli, hors Urssaf, salaires et virements vers le Livret A : <b>'+eur(b.M.appAvg)+' / mois</b>. ':'')+'Mettre 0 pour ne rien retirer. Les mois suivis par l\'appli utilisent toujours leurs vraies dépenses.</p>');
   return h;
 }
 function setSim(k,v){

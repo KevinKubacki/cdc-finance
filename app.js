@@ -5,10 +5,10 @@ var KEYS=['ent','liv','esp'],SKEYS=['ent','liv','esp','dir'];   /* dir = payé d
 function pad2(n){return n<10?'0'+n:''+n}
 function todayISO(){var d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())}
 var TODAY=todayISO();
-var VERSION='2.3';
+var VERSION='2.4';
 var DEF_DATE='2026-08-31';
 var S={
-  initDate:DEF_DATE,init:{ent:0,liv:0,esp:0},deps:[],sorties:[],exps:[],noauto:[],bk:{ok:'',cls:{},rules:{},keep:[]},
+  initDate:DEF_DATE,init:{ent:0,liv:0,esp:0},deps:[],sorties:[],exps:[],noauto:[],bk:{ok:'',cls:{},rules:{},keep:[]},sim:{},
   open:{},goalOn:false,goal:1800,view:'home',
   prov:true,gopen:{out:true,in:true,dx:false,bal:false},fa:null,fb:null,years:[],sel:null,regOpen:false,setupOpen:false
 };
@@ -24,8 +24,8 @@ loadF();
 
 /* ---------- Annuler / rétablir ---------- */
 var UNDO=[],REDO=[],lastKey=null,lastT=0,tmr=null;
-function snap(){return JSON.stringify({i:S.init,d:S.initDate,dp:S.deps,so:S.sorties,ex:S.exps,g:S.goal,go:S.goalOn,na:S.noauto,bk:S.bk})}
-function restore(js){var o=JSON.parse(js);S.init=o.i;S.initDate=o.d;S.deps=o.dp;S.sorties=o.so;S.exps=o.ex;S.goal=o.g;S.goalOn=o.go;S.noauto=o.na||[];S.bk=o.bk||{ok:'',cls:{},rules:{},keep:[]}}
+function snap(){return JSON.stringify({i:S.init,d:S.initDate,dp:S.deps,so:S.sorties,ex:S.exps,g:S.goal,go:S.goalOn,na:S.noauto,bk:S.bk,sim:S.sim})}
+function restore(js){var o=JSON.parse(js);S.init=o.i;S.initDate=o.d;S.deps=o.dp;S.sorties=o.so;S.exps=o.ex;S.goal=o.g;S.goalOn=o.go;S.noauto=o.na||[];S.bk=o.bk||{ok:'',cls:{},rules:{},keep:[]};S.sim=o.sim||{}}
 function hist(label,key){
   var now=Date.now();
   if(key&&key===lastKey&&now-lastT<2000){lastT=now;return}
@@ -132,7 +132,8 @@ function autoRec(){
 
 function renderFixed(){
   var b=bal(),t=0;KEYS.forEach(function(k){t+=b[k]});
-  var h='<div class="card"><div class="head"><div><div class="lbl">Trésorerie totale</div><div class="total">'+eur(t)+'</div></div>'+
+  var SA=simAlert();
+  var h='<div class="card"><div class="head"><div><div class="lbl">Trésorerie totale</div><div class="total">'+eur(t)+'</div>'+SA.pill+'</div>'+
     bankPill()+'</div>';
   KEYS.forEach(function(k){
     var bk=(k==='ent'&&bankOn()),sub=C[k].sub?'<small>'+C[k].sub+'</small>':'';
@@ -141,7 +142,7 @@ function renderFixed(){
       '<span class="amt'+(b[k]<0?' neg':'')+'">'+eur(b[k])+'</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>'+
       (bk?'':'<button class="btn pri sm" onclick="openDep(\''+k+'\')" aria-label="Ajouter un dépôt sur '+C[k].n+'">+ Dépôt</button>')+'</div>';
   });
-  h+='</div>'+bankBanner()+'<div class="bgrid"><button class="btn pri big" onclick="openSortie()">Saisir un salaire</button><button class="btn dep big" onclick="openExp()">Dépense ponctuelle</button></div><div class="sec">Derniers mouvements</div>';
+  h+='</div>'+bankBanner()+SA.band+'<div class="bgrid"><button class="btn pri big" onclick="openSortie()">Saisir un salaire</button><button class="btn dep big" onclick="openExp()">Dépense ponctuelle</button></div><div class="sec">Derniers mouvements</div>';
   $('fixed').innerHTML=h;
 }
 
@@ -547,9 +548,9 @@ function go(v,pop){
     }catch(e){}
   }
   S.view=v;
-  ['home','syn','set','rap'].forEach(function(x){$('v-'+x).hidden=(x!==v);var t=$('t-'+x);if(!t)return;if(x===v)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current')});
+  ['home','syn','sim','set','rap'].forEach(function(x){$('v-'+x).hidden=(x!==v);var t=$('t-'+x);if(!t)return;if(x===v)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current')});
   $('b-back').hidden=(v==='home');$('hb').hidden=(v!=='home');
-  if(v==='syn')renderSyn();if(v==='set')renderSet();if(v==='rap')renderRap();
+  if(v==='syn')renderSyn();if(v==='set')renderSet();if(v==='rap')renderRap();if(v==='sim')renderSim();
 }
 window.addEventListener('popstate',function(e){
   if(!$('modal').hidden){M=null;BACK=null;ACC=null;$('modal').hidden=true}
@@ -714,7 +715,7 @@ function delD(){
   hist('suppression d\'un dépôt');
   S.deps=S.deps.filter(function(x){return x.id!==M.id});closeM();refresh();
 }
-function refresh(){renderFixed();renderList();if(S.view==='syn')renderSyn();if(S.view==='rap')renderRap()}
+function refresh(){renderFixed();renderList();if(S.view==='syn')renderSyn();if(S.view==='rap')renderRap();if(S.view==='sim')renderSim()}
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!$('modal').hidden)closeM()});
 window.addEventListener('resize',function(){if(S.view==='syn')renderSynBody()});
 
@@ -1091,6 +1092,322 @@ function bankReturn(){
   }).catch(function(){sheetMsg('La liaison n\'a pas abouti','<p class="note">Pas de réseau ou script injoignable.</p>',true)});
 }
 
+/* ====================== Simulateur (V2.4) ======================
+   Salaire soutenable, période creuse, tampon d'alerte, minimum sur le Compte entreprise, projections de tarifs.
+   Calculs sur les 12 derniers mois complets : les mois suivis par l'appli + l'historique saisi dans l'onglet « Historique » du Sheet. */
+var HIST=[];                       /* [{m:'AAAA-MM',dep,urs}] : avant l'appli (CdC Manager + Urssaf réelle), lu dans le Sheet */
+var SIMDEF={sa:'',urs:'mois',tamp:'',prix:'150',sej:'18',pb:'',pm:'',cab:'25558',cam:'6688',nsej:'215',chg:'250'};
+var SU={sv:'sal',sim:'act',free:'',mode:'vise',tgt:'',split:'tout',hb:'0',hm:'0',reg:false,base:false,guide:false,det:false,info:false};
+function SP(k){var v=S.sim&&S.sim[k];return (v==null||v==='')?SIMDEF[k]:v}
+function MOIS(k){return new Date(+k.slice(0,4),+k.slice(5,7)-1,1).toLocaleDateString('fr-FR',{month:'short'})}
+function up100(n){return Math.ceil(n/100)*100}
+function sgE(n){return (n>=0?'+ ':'− ')+eur(Math.abs(n))}
+function simSum(a){var t=0;a.forEach(function(x){t+=x});return t}
+
+/* ---------- les données des 12 derniers mois ---------- */
+function simMonths(){
+  var cur=TODAY.slice(0,7),start=mAdd(cur,-12),appFrom=S.initDate.slice(0,7),A={},hm={},rows=[];
+  HIST.forEach(function(h){hm[h.m]=h});
+  function g(k){return A[k]||(A[k]={dep:0,urs:0,chg:0,sal:0})}
+  S.deps.forEach(function(d){if(!d.tr&&d.date>S.initDate)g(d.date.slice(0,7)).dep+=d.m});
+  S.exps.forEach(function(x){if(x.tr||x.date<=S.initDate)return;var m=g(x.date.slice(0,7));if(/URSSAF/i.test(x.label))m.urs+=sumL(x);else m.chg+=sumL(x)});
+  S.sorties.forEach(function(s){var t=0;s.lines.forEach(function(l){if(l.c!=='dir')t+=l.m});g(spm(s)).sal+=t});
+  var appChg=[],sal=[];
+  for(var i=0;i<12;i++){
+    var k=mAdd(start,i);
+    if(k>appFrom){var a=A[k]||{dep:0,urs:0,chg:0,sal:0};rows.push({k:k,dep:a.dep,urs:a.urs,chg:a.chg,src:'app'});appChg.push(a.chg);sal.push(a.sal)}
+    else if(hm[k])rows.push({k:k,dep:+hm[k].dep||0,urs:+hm[k].urs||0,chg:null,src:'hist'});
+  }
+  var chgAvg=appChg.length?simSum(appChg)/appChg.length:+SP('chg');
+  rows.forEach(function(r){if(r.chg==null)r.chg=chgAvg;r.d=r.dep-r.urs-r.chg;r.m=MOIS(r.k)});
+  return {rows:rows,n:rows.length,nApp:appChg.length,nHist:rows.length-appChg.length,salAvg:sal.length?simSum(sal)/sal.length:null,chgAvg:chgAvg};
+}
+function simBase(){
+  var M=simMonths(),n=M.n||1,dep=simSum(M.rows.map(function(r){return r.dep})),urs=simSum(M.rows.map(function(r){return r.urs}));
+  var sout=simSum(M.rows.map(function(r){return r.d}))/n,avg=M.salAvg;
+  var act=+SP('sa')||avg||sout;
+  return {M:M,dep:dep/n,urs:urs/n,chg:M.chgAvg,sout:sout,avg:avg,act:act,goal:+S.goal||2100,tx:dep?urs/dep:0.2,ok:M.n>=3};
+}
+function simRun(b,x){
+  var run=0,worst=0,wi=0,ws=0,st=0,short=0,rows=[];
+  b.M.rows.forEach(function(r,i){var d=r.d-x;if(run===0&&d<0)st=i;run=Math.min(0,run+d);if(run<worst){worst=run;wi=i;ws=st}if(d<0)short++;rows.push({m:r.m,k:r.k,d:r.d,r:d,res:run})});
+  return {rows:rows,worst:-worst,wi:wi,ws:ws,short:short,year:simSum(b.M.rows.map(function(r){return r.d}))*12/(b.M.n||1)-12*x};
+}
+function simSeuils(b){
+  var s=simRun(b,b.act),uc=b.urs+b.chg,red=up100(b.act),conseil=Math.max(up100(s.worst+uc),red+100);
+  var q={};b.M.rows.forEach(function(r){var y=r.k.slice(0,4),qq=y+'-'+Math.floor((+r.k.slice(5,7)-1)/3);q[qq]=(q[qq]||0)+r.urs});
+  var maxM=0;b.M.rows.forEach(function(r){maxM=Math.max(maxM,r.urs)});
+  var maxQ=0;for(var k in q)maxQ=Math.max(maxQ,q[k]);
+  var bfr=up100((SP('urs')==='trim'?maxQ:maxM)+b.chg);
+  return {red:red,conseil:conseil,tamp:+SP('tamp')||conseil,manual:!!+SP('tamp'),bfr:bfr,worst:s.worst,uc:uc,ws:s.ws,wi:s.wi,rows:s.rows};
+}
+function periode(s){var a=s.rows[s.ws],z=s.rows[s.wi];return s.ws===s.wi?z.m:'de '+a.m+' à '+z.m}
+/* séjours en plus pour combler un manque mensuel */
+function sejours(gap,b){
+  var prix=+SP('prix')||150,ca=gap*12/(1-b.tx),n=ca/prix,pm=n/12;
+  return {ca:up100(ca),an:Math.ceil(n),mois:Math.ceil(pm),pm:pm<10?pm.toLocaleString('fr-FR',{maximumFractionDigits:1}):String(Math.round(pm)),cur:+SP('sej')||18};
+}
+function sejViz(s){
+  var h='<div class="stays" aria-hidden="true">';
+  for(var i=0;i<Math.min(s.cur,60);i++)h+='<i class="cur"></i>';
+  for(var j=0;j<Math.min(s.mois,60);j++)h+='<i class="add"></i>';
+  return h+'</div><p class="note"><i class="dot" style="background:var(--m-sout)"></i>'+s.cur+' séjours par mois aujourd\'hui &nbsp; <i class="dot" style="background:var(--s-warn)"></i>environ '+s.pm+' de plus par mois</p>';
+}
+
+/* ---------- accueil : alerte et conseil Livret ---------- */
+function simAlert(){
+  var b=simBase();if(!b.ok)return {pill:'',band:''};
+  var t=simSeuils(b),B=bal(),tot=B.ent+B.liv+B.esp,st=tot<t.red?'bad':tot<t.tamp?'warn':'ok',band='';
+  var pill={ok:'<span class="spill ok"><i></i>Tampon OK</span>',warn:'<button class="spill warn" onclick="go(\'sim\')"><i></i>Sous le tampon</button>',bad:'<button class="spill bad" onclick="go(\'sim\')"><i></i>Trésorerie basse</button>'}[st];
+  if(st==='warn')band+=simBand('warn','!','Trésorerie sous le tampon',eur(tot)+' sur les 3 comptes, pour un tampon de '+eur(t.tamp)+'. Le prochain salaire passe, mais une période creuse ne serait plus couverte.');
+  if(st==='bad')band+=simBand('bad','!!','Moins d\'un mois de salaire en caisse',eur(tot)+' sur les 3 comptes : moins que le salaire actuel ('+eur(b.act)+'). Mieux vaut réduire ou décaler le prochain versement.');
+  var move=Math.floor((B.ent-t.bfr)/100)*100;
+  if(move>=100&&st!=='bad')band+=simBand('ok','€','Vous pouvez mettre '+eur(move)+' sur le Livret A','Le Compte entreprise n\'a besoin que de '+eur(t.bfr)+' (Urssaf '+(SP('urs')==='trim'?'du trimestre':'du mois')+' + charges).');
+  return {pill:pill,band:band};
+}
+function simBand(c,ic,t,s){return '<div class="sband '+c+'"><span class="ic">'+ic+'</span><div><b>'+t+'</b><small>'+s+'</small></div></div>'}
+
+/* ---------- graphiques ---------- */
+function nice2(v){var st=[100,200,250,500,1000,2000,2500,5000,10000,20000,50000],s=st[st.length-1];for(var i=0;i<st.length;i++){if(v/st[i]<=4){s=st[i];break}}return {step:s,max:Math.max(s,Math.ceil(v/s)*s)}}
+function kf(n){n=Math.round(n);return Math.abs(n)>=1000?(n/1000).toLocaleString('fr-FR',{maximumFractionDigits:1})+' k':String(n)}
+function axisChart(rows,o){
+  var mx=1;rows.forEach(function(r){mx=Math.max(mx,r.v)});if(o.line)mx=Math.max(mx,o.line);
+  var n=nice2(mx),g='';
+  for(var t=0;t<=n.max+0.1;t+=n.step){var p=(t/n.max*100).toFixed(2)+'%';g+='<div class="sgl" style="bottom:'+p+'"></div><span class="syl" style="bottom:'+p+'">'+kf(t)+'</span>'}
+  var bars=rows.map(function(r){return '<div class="scol" title="'+esc(r.t)+'"><div class="sbar" style="height:'+(r.v/n.max*100).toFixed(2)+'%;background:'+r.c+'"></div></div>'}).join('');
+  var line=o.line?'<div class="sline" style="bottom:'+(o.line/n.max*100).toFixed(2)+'%"><span>'+o.lineLbl+'</span></div>':'';
+  return '<div class="sch"><div class="splot" style="height:'+o.H+'px">'+g+bars+line+'</div><div class="sxl">'+rows.map(function(r){return '<span>'+r.m.replace('.','').slice(0,4)+'</span>'}).join('')+'</div></div>';
+}
+function trajChart(s,tamp,T0){
+  var W=340,H=180,L=42,R=8,T=12,B=22,N=s.rows.length,pw=W-L-R,ph=H-T-B,bal0=[T0];
+  s.rows.forEach(function(r){bal0.push(bal0[bal0.length-1]+r.r)});
+  var lo=Math.min(0,Math.min.apply(null,bal0)),hi=Math.max(tamp,Math.max.apply(null,bal0))*1.08,n=nice2(hi-lo);
+  lo=lo<0?-Math.ceil(-lo/n.step)*n.step:0;hi=lo+Math.ceil((hi-lo)/n.step)*n.step;
+  function X(i){return L+i/N*pw}function Y(v){return T+(hi-v)/(hi-lo)*ph}
+  var g='';
+  for(var v=lo;v<=hi+0.1;v+=n.step)g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v)+'" y2="'+Y(v)+'" style="stroke:var(--line)" stroke-dasharray="'+(v===0?'0':'3 3')+'"/><text x="'+(L-5)+'" y="'+(Y(v)+3)+'" text-anchor="end" style="fill:var(--muted);font-size:10px">'+(v<0?'− ':'')+kf(Math.abs(v))+'</text>';
+  var zone=s.worst>0?'<rect x="'+X(s.ws)+'" y="'+T+'" width="'+(X(s.wi+1)-X(s.ws))+'" height="'+ph+'" style="fill:var(--line);opacity:.55"/><text x="'+((X(s.ws)+X(s.wi+1))/2)+'" y="'+(T+11)+'" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:700">creux</text>':'';
+  var neg=lo<0?'<rect x="'+L+'" y="'+Y(0)+'" width="'+pw+'" height="'+(Y(lo)-Y(0))+'" style="fill:var(--s-bad-bg)"/>':'';
+  var pts=bal0.map(function(v,i){return X(i).toFixed(1)+','+Y(v).toFixed(1)}).join(' ');
+  var area='<polygon points="'+X(0)+','+Y(Math.max(lo,0))+' '+pts+' '+X(N)+','+Y(Math.max(lo,0))+'" style="fill:var(--m-sout);opacity:.12"/>';
+  var dots=bal0.map(function(v,i){return '<circle cx="'+X(i)+'" cy="'+Y(v)+'" r="3" style="fill:'+(v<0?'var(--s-bad)':v<tamp?'var(--s-warn)':'var(--m-sout)')+'"><title>'+(i?'fin '+s.rows[i-1].m:'aujourd\'hui')+' : '+eur(v)+'</title></circle>'}).join('');
+  var tl='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(tamp)+'" y2="'+Y(tamp)+'" style="stroke:var(--s-warn)" stroke-width="1.5" stroke-dasharray="5 3"/><text x="'+(W-R)+'" y="'+(Y(tamp)-4)+'" text-anchor="end" style="fill:var(--s-warn);font-size:10px;font-weight:700">tampon</text>';
+  var lab='';for(var i=1;i<=N;i++)lab+='<text x="'+((X(i-1)+X(i))/2)+'" y="'+(H-6)+'" text-anchor="middle" style="fill:var(--muted);font-size:9px">'+s.rows[i-1].m.replace('.','').slice(0,4)+'</text>';
+  return '<svg class="traj" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Évolution de l\'argent sur les 3 comptes mois par mois">'+neg+g+zone+area+tl+'<polyline points="'+pts+'" style="fill:none;stroke:var(--fg)" stroke-width="2" stroke-linejoin="round"/>'+dots+lab+'</svg>';
+}
+function creux(s,x){
+  if(!(s.worst>0))return '<div class="story ok"><b>☀️ Pas de période creuse</b><p>Chaque mois rapporte au moins '+eur(x)+' : le salaire ne puise jamais dans les économies.</p></div>';
+  var per=s.rows.slice(s.ws,s.wi+1),n=per.length;
+  return '<div class="story"><b>🌧️ La période creuse : '+periode(s)+'</b>'+
+    '<p>'+(n===1?'Ce mois-là':'Pendant ces '+n+' mois')+', l\'activité ne rapporte pas assez pour payer '+eur(x)+' :</p>'+
+    '<div class="steps">'+per.map(function(r){return '<span class="'+(r.r<0?'neg':'pos')+'">'+r.m+' '+sgE(r.r)+'</span>'}).join('')+'</div>'+
+    '<p>Mis bout à bout, il manque <b>'+eur(s.worst)+'</b>. '+(s.year<0?'Les économies baissent toute l\'année : ce salaire n\'est pas tenable sans plus d\'activité.':'Il faut donc avoir au moins cette somme de côté au début de la période pour la traverser sans tomber à zéro. C\'est pour ça que le tampon d\'alerte est réglé au-dessus.')+'</p></div>';
+}
+
+/* ---------- l'onglet ---------- */
+function renderSim(){
+  var el=$('v-sim');if(!el)return;
+  var h='<div class="subtabs" role="tablist"><button role="tab" aria-selected="'+(SU.sv==='sal')+'" onclick="SU.sv=\'sal\';renderSim()"><b>Salaire</b><small>au fil des mois</small></button>'+
+    '<button role="tab" aria-selected="'+(SU.sv==='tar')+'" onclick="SU.sv=\'tar\';renderSim()"><b>Tarifs</b><small>projections</small></button></div>';
+  var b=simBase();
+  if(!b.ok)h+='<div class="card"><p class="note">Pas encore assez de mois pour calculer ('+b.M.n+' sur 12). Complétez l\'onglet « Historique » du Google Sheet (encaissements et Urssaf des mois avant l\'appli), ou attendez quelques mois de données.</p></div>';
+  else h+=SU.sv==='tar'?simTar(b):simSal(b);
+  el.innerHTML=h;
+  bindScale();bindTar();
+}
+function fold(key,title,sub,body){return '<details class="card fold"'+(SU[key]?' open':'')+' ontoggle="SU.'+key+'=this.open"><summary><b class="ft">'+title+'</b>'+(sub?'<span class="note">'+sub+'</span>':'')+'</summary>'+body+'</details>'}
+function simSal(b){
+  var t=simSeuils(b),x=SU.sim==='sout'?b.sout:SU.sim==='avg'&&b.avg?b.avg:SU.sim==='goal'?b.goal:SU.sim==='free'&&+SU.free?+SU.free:b.act,s=simRun(b,x),B=bal(),T0=B.ent+B.liv+B.esp;
+  var h='<details class="info guide"'+(SU.guide?' open':'')+' ontoggle="SU.guide=this.open"><summary>ⓘ Comment lire cet onglet (30 secondes)</summary><ol>'+
+    '<li><b>Soutenable</b> : ce que l\'activité permet de verser chaque mois, en moyenne sur l\'année.</li>'+
+    '<li>Les mois ne se ressemblent pas : certains rapportent moins que le salaire. Quand ils s\'enchaînent, c\'est la <b>période creuse</b> : on la traverse avec les économies.</li>'+
+    '<li>Le <b>tampon</b> = l\'argent à garder de côté pour traverser la période creuse. Sous le tampon, l\'accueil prévient en orange ; sous un mois de salaire, en rouge.</li></ol></details>';
+  // 1. l'échelle
+  var all=[b.sout,b.act,b.goal];if(b.avg)all.push(b.avg);
+  SC.lo=Math.max(0,Math.floor(Math.min.apply(null,all)*0.8/500)*500);
+  SC.hi=Math.max(SC.lo+1000,Math.ceil(Math.max.apply(null,all)*1.15/500)*500);
+  function p(v){return (Math.max(0,Math.min(1,(v-SC.lo)/(SC.hi-SC.lo)))*100).toFixed(2)+'%'}
+  var mk=[['sout','Soutenable',b.sout],['act','Actuel',b.act,'sa'],['goal','Objectif',b.goal,'goal']];if(b.avg)mk.push(['avg','Moyen',b.avg]);
+  mk.sort(function(a,c){return a[2]-c[2]});
+  var marks=mk.map(function(m,i){
+    var row=i%2?'up':'dn';
+    if(!m[3])return '<div class="mk '+row+'" style="left:'+p(m[2])+';border-color:var(--m-'+m[0]+');color:var(--m-'+m[0]+')"><span>'+m[1]+'<br>'+eur(m[2])+'</span></div>';
+    return '<div class="mk drag '+row+'" style="left:'+p(m[2])+';color:var(--m-'+m[0]+')"><span>'+m[1]+'<br><u class="val" data-key="'+m[3]+'" title="Toucher pour taper un montant">'+eur(m[2])+'</u></span>'+
+      '<i class="knob" data-key="'+m[3]+'" role="slider" tabindex="0" aria-label="'+m[1]+'" aria-valuenow="'+Math.round(m[2])+'"></i></div>';
+  }).join('');
+  var over=b.act>b.sout;
+  h+='<div class="card sc"><b class="ft">Où en est le salaire de Susan ?</b>';
+  if(over){var sj=sejours(b.act-b.sout,b);
+    h+='<div class="callout"><span class="ic">⚠</span><div><b>Salaire actuel au-dessus de ce que l\'activité permet</b>'+
+      '<p>À '+eur(b.act)+' par mois, il manque ~'+eur(b.act-b.sout)+' chaque mois : la trésorerie baisserait d\'environ '+eur(Math.round((b.act-b.sout)*12/100)*100)+' par an.</p>'+
+      '<p>Pour le tenir durablement : ~'+eur(sj.ca)+' de chiffre d\'affaires en plus par an, soit <b>~'+sj.an+' séjours de plus</b> (≈ '+sj.pm+' par mois, '+sj.cur+' → '+(sj.cur+sj.mois)+').</p>'+sejViz(sj)+'</div></div>'}
+  h+='<div class="scale" id="scale"><div class="trk"></div><div class="fill" style="width:'+p(b.sout)+'"></div>'+marks+
+    '<span class="ends" style="left:0">'+eur(SC.lo)+'</span><span class="ends" style="right:0">'+eur(SC.hi)+'</span></div>'+
+    '<p class="note">Glissez les ronds <b style="color:var(--m-act)">Actuel</b> et <b style="color:var(--m-goal)">Objectif</b>, ou touchez leur montant pour le taper. La barre verte va jusqu\'au salaire soutenable : un salaire dans le vert est tenable.</p>'+
+    '<div class="slegend">'+
+      '<i style="background:var(--m-sout)"></i><span>Soutenable : ce que l\'activité permet</span><b class="num">'+eur(b.sout)+'</b>'+
+      '<i style="background:var(--m-act)"></i><span>Actuel : ce qu\'elle se verse</span><b class="num">'+eur(b.act)+'</b>'+
+      (b.avg?'<i style="background:var(--m-avg)"></i><span>Moyen versé ('+b.M.nApp+' mois)</span><b class="num">'+eur(b.avg)+'</b>':'')+
+      '<i style="background:var(--m-goal)"></i><span>Objectif</span><b class="num">'+eur(b.goal)+'</b></div>';
+  if(!over)h+='<p class="verdict">✓ Le salaire actuel est tenable : il reste ~'+eur(b.sout-b.act)+' de marge par mois.</p>';
+  if(b.goal>b.act){
+    if(b.goal<=b.sout)h+='<p class="verdict">🎯 L\'objectif de '+eur(b.goal)+' est déjà possible avec l\'activité actuelle.</p>';
+    else{var sg=sejours(b.goal-b.sout,b);
+      h+='<div><p class="verdict">🎯 <b>Pour l\'objectif de '+eur(b.goal)+'</b> : il manque ~'+eur(b.goal-b.sout)+' par mois, soit ~'+eur(sg.ca)+' de chiffre d\'affaires en plus par an, <b>~'+sg.an+' séjours de plus</b> (≈ '+sg.pm+' par mois, '+sg.cur+' → '+(sg.cur+sg.mois)+').</p>'+sejViz(sg)+'</div>'}
+  }else if(b.goal<b.act)h+='<p class="note">Le salaire actuel dépasse déjà l\'objectif de '+eur(b.goal)+'.</p>';
+  h+='<details class="info"'+(SU.info?' open':'')+' ontoggle="SU.info=this.open"><summary>ⓘ Comment sont faits ces calculs ?</summary><div class="kv">'+
+      '<span>Dépôts moyens / mois</span><span class="num">+ '+eur(b.dep)+'</span>'+
+      '<span>Urssaf moyenne / mois</span><span class="num">− '+eur(b.urs)+'</span>'+
+      '<span>Autres dépenses / mois</span><span class="num">− '+eur(b.chg)+'</span>'+
+      '<span class="tot">Salaire soutenable</span><span class="tot num">'+eur(b.sout)+'</span></div>'+
+      '<p class="note">Sur '+b.M.n+' mois ('+b.M.rows[0].m+' '+b.M.rows[0].k.slice(0,4)+' → '+b.M.rows[b.M.n-1].m+' '+b.M.rows[b.M.n-1].k.slice(0,4)+') : '+b.M.nApp+' suivis par l\'appli (banque + saisies, transferts vers le Livret exclus)'+(b.M.nHist?', '+b.M.nHist+' tirés de l\'onglet Historique du Sheet (autres dépenses estimées à '+eur(b.chg)+' / mois)':'')+'. '+
+      'Séjours : chiffre d\'affaires en plus ÷ prix moyen d\'un séjour ('+eur(+SP('prix'))+'), après Urssaf ('+(b.tx*100).toFixed(1).replace('.',',')+' % des encaissements).</p></details></div>';
+  // 2. et si…
+  function ch(k,lab,v,col){return '<button class="tg sch-c" aria-pressed="'+(SU.sim===k)+'" onclick="SU.sim=\''+k+'\';renderSim()"><i style="background:var(--m-'+col+')"></i>'+lab+' '+eur(v)+'</button>'}
+  h+='<div class="card sc"><b class="ft">Et si Susan se versait…</b>'+
+    '<div class="frow">'+ch('act','Actuel',b.act,'act')+(b.avg?ch('avg','Moyen',b.avg,'avg'):'')+ch('sout','Soutenable',b.sout,'sout')+ch('goal','Objectif',b.goal,'goal')+
+    '<button class="tg" aria-pressed="'+(SU.sim==='free')+'" onclick="SU.sim=\'free\';renderSim()">Autre</button></div>'+
+    (SU.sim==='free'?'<div class="srow"><label for="sim-fr">Montant à tester</label><input type="text" id="sim-fr" inputmode="decimal" value="'+esc(SU.free)+'" onchange="SU.free=this.value.replace(/\\D/g,\'\');renderSim()"></div>':'')+
+    '<p class="verdict">En rejouant les '+b.M.n+' derniers mois avec <b>'+eur(x)+' par mois</b> : '+(s.rows.length-s.short)+' mois '+(s.rows.length-s.short>1?'paient':'paie')+' le salaire, '+s.short+' '+(s.short>1?'ne suffisent pas':'ne suffit pas')+'. '+
+      'Sur une année, la trésorerie '+(s.year>=0?'gagne <b>~'+eur(Math.round(s.year/100)*100)+'</b>.':'perd <b>~'+eur(Math.round(-s.year/100)*100)+'</b>.')+
+      (s.year<0?' Pour tenir ce salaire : ~'+sejours(-s.year/12,b).pm+' séjours de plus par mois.':'')+'</p>'+
+    '<h3 class="sh3">Ce que rapporte chaque mois (après Urssaf et charges)</h3>'+
+    axisChart(s.rows.map(function(r){return {v:Math.max(0,r.d),c:r.r>=0?'var(--m-sout)':'var(--short)',m:r.m,t:r.m+' : '+eur(r.d)+' disponibles'}}),{H:150,line:x,lineLbl:'salaire '+eur(x)})+
+    '<p class="note"><i class="dot" style="background:var(--m-sout)"></i>le mois paie le salaire &nbsp; <i class="dot" style="background:var(--short)"></i>le mois ne suffit pas : on puise dans les économies</p>'+
+    creux(s,x)+
+    '<h3 class="sh3">Si l\'année se répétait : l\'argent sur les 3 comptes</h3>'+trajChart(s,t.tamp,T0)+
+    '<p class="note">Chaque point = l\'argent en fin de mois. On part des '+eur(T0)+' d\'aujourd\'hui et on rejoue les derniers mois avec ce salaire. '+(s.worst>0?'La zone grisée = la période creuse. ':'')+'La ligne orange = le tampon d\'alerte ('+eur(t.tamp)+') : rester au-dessus, c\'est être à l\'abri.</p>'+
+    '<details class="info"'+(SU.det?' open':'')+' ontoggle="SU.det=this.open"><summary>ⓘ Voir le détail mois par mois</summary><div class="smonths"><span class="h">Mois</span><span class="h">Dispo</span><span class="h">Après salaire</span>'+
+      s.rows.map(function(r){return '<span>'+r.m+' '+r.k.slice(2,4)+'</span><span class="num">'+eur(r.d)+'</span><span class="num" style="color:'+(r.r>=0?'var(--plus)':'var(--s-warn)')+'">'+sgE(r.r)+'</span>'}).join('')+'</div></details></div>';
+  // 3. réglages
+  var diff=t.tamp-t.conseil,expl='';
+  if(t.manual){
+    if(diff<0)expl='<div class="expl warn">Votre tampon ('+eur(t.tamp)+') est plus bas que le conseillé ('+eur(t.conseil)+'). Pendant une période creuse comme celle '+(t.worst>0?periode({rows:t.rows,ws:t.ws,wi:t.wi}).replace(/^de /,'de '):'')+', la trésorerie pourrait descendre jusqu\'à ~'+eur(-diff)+' sous zéro avant que l\'alerte orange ne prévienne.</div>';
+    else if(diff>0)expl='<div class="expl ok">Plus prudent que le conseillé ('+eur(t.conseil)+') : l\'alerte orange préviendra plus tôt, avec ~'+eur(diff)+' de marge en plus.</div>';
+    else expl='<div class="expl ok">Identique au conseillé.</div>';
+  }
+  function inp(k,lab,ph){return '<div class="srow"><label for="sim-'+k+'">'+lab+'</label><input type="text" id="sim-'+k+'" inputmode="decimal" value="'+esc(S.sim&&S.sim[k]||'')+'" placeholder="'+(ph||'')+'" onchange="setSim(\''+k+'\',this.value)"></div>'}
+  function seg(k,v,l){return '<button class="tg" aria-pressed="'+(SP(k)===v)+'" onclick="setSim(\''+k+'\',\''+v+'\')">'+l+'</button>'}
+  h+=fold('reg','Mes réglages','Actuel '+eur(b.act)+' · Objectif '+eur(b.goal)+' · Tampon '+eur(t.tamp),
+    inp('sa','Salaire actuel / prévu',b.avg?Math.round(b.avg):'')+
+    '<p class="note">Ce que Susan se verse en ce moment. Sert aux alertes de l\'accueil.'+(b.avg?' Vide = le salaire moyen versé ('+eur(b.avg)+').':'')+'</p>'+
+    '<div class="srow"><label for="sim-goal">Objectif</label><input type="text" id="sim-goal" inputmode="decimal" value="'+S.goal+'" onchange="setGoal(this.value);refresh()"></div>'+
+    '<p class="note">Le salaire visé. Sert seulement à mesurer le chemin qui reste (c\'est aussi l\'objectif de la Synthèse).</p>'+
+    '<div class="srow"><span>Urssaf</span><div class="frow">'+seg('urs','mois','Mensuelle')+seg('urs','trim','Trimestrielle')+'</div></div>'+
+    '<p class="note">À garder sur le Compte entreprise : '+eur(t.bfr)+'. Au-dessus, l\'accueil propose de mettre le surplus sur le Livret A.</p>'+
+    inp('tamp','Tampon d\'alerte',t.conseil)+
+    '<p class="note">Conseillé : <b>'+eur(t.conseil)+'</b> pour un salaire de '+eur(b.act)+(t.worst>0?' = la période creuse de l\'année (il y manque '+eur(t.worst)+', '+periode({rows:t.rows,ws:t.ws,wi:t.wi})+') + un mois d\'Urssaf et de charges ('+eur(t.uc)+')':' (au moins un mois de salaire)')+'. Laisser vide pour suivre le conseillé, qui se met à jour chaque mois.</p>'+expl+
+    '<div class="kv"><span>🟠 Alerte orange sous (tampon)</span><b class="num">'+eur(t.tamp)+'</b><span>🔴 Alerte rouge sous (1 mois de salaire)</span><b class="num">'+eur(t.red)+'</b></div>'+
+    '<h3 class="sh3">Séjours</h3>'+inp('prix','Prix moyen d\'un séjour',SIMDEF.prix)+inp('sej','Séjours par mois aujourd\'hui',SIMDEF.sej)+
+    '<p class="note">D\'après CdC Manager 2026 : 32 246 € pour 215 séjours (≈ 150 € le séjour, ≈ 18 par mois). Sert à traduire un manque de chiffre d\'affaires en séjours.</p>'+
+    inp('chg','Autres dépenses / mois (mois de l\'historique)',SIMDEF.chg)+
+    '<p class="note">Utilisé seulement pour les mois de l\'onglet Historique, avant que la banque ne donne les vraies dépenses.</p>');
+  return h;
+}
+function setSim(k,v){
+  v=String(v==null?'':v).trim();if(k!=='urs')v=v.replace(/[^\d,.]/g,'').replace(',','.');
+  hist('réglages du simulateur','sim-'+k);
+  S.sim=Object.assign({},S.sim||{});if(v==='')delete S.sim[k];else S.sim[k]=v;
+  renderSim();renderFixed();
+}
+
+/* ---------- tarifs et projections ---------- */
+function pct(x){return (x*100).toLocaleString('fr-FR',{maximumFractionDigits:1})+' %'}
+function prixN(p,h){p=+p;return p?(p*(1+h)).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €':''}
+function simTar(b){
+  if(!SU.tgt)SU.tgt=String(Math.round(b.goal));
+  var CB=+SP('cab'),CM=+SP('cam'),NS=+SP('nsej');
+  function seg(k,v,l){return '<button class="tg" aria-pressed="'+(SU[k]===v)+'" onclick="SU.'+k+'=\''+v+'\';renderSim()">'+l+'</button>'}
+  var h='<div class="card sc"><b class="ft">Que faire des tarifs ?</b><div class="frow">'+seg('mode','vise','Je vise un salaire')+seg('mode','hausse','Je fixe une hausse')+'</div>'+
+    '<p class="note">'+(SU.mode==='vise'?'Indiquez le salaire voulu : l\'appli calcule la hausse de tarif nécessaire.':'Réglez la hausse des box et de la maison : l\'appli calcule ce qu\'elle rapporte et le salaire possible.')+'</p>';
+  if(SU.mode==='vise'){
+    function ch(v,l){return '<button class="tg" aria-pressed="'+(+SU.tgt===Math.round(v))+'" onclick="SU.tgt=\''+Math.round(v)+'\';renderSim()">'+l+' '+eur(v)+'</button>'}
+    h+='<div class="srow"><label for="sim-tg">Salaire visé par mois</label><input type="text" id="sim-tg" inputmode="decimal" value="'+esc(SU.tgt)+'" onchange="SU.tgt=this.value.replace(/\\D/g,\'\');renderSim()"></div>'+
+      '<div class="frow">'+ch(b.goal,'Objectif')+ch(b.act,'Actuel')+'</div>'+
+      '<span class="note">Hausse appliquée sur</span><div class="frow">'+seg('split','tout','Box + maison')+seg('split','box','Box seulement')+seg('split','mai','Maison seulement')+'</div>';
+  }else h+=slider('hb','Box',SP('pb'),CB)+slider('hm','Maison',SP('pm'),CM);
+  h+='</div><div id="tar-out">'+tarOut(b)+'</div>';
+  function inp(k,lab){return '<div class="srow"><label for="sim-'+k+'">'+lab+'</label><input type="text" id="sim-'+k+'" inputmode="decimal" value="'+esc(SP(k))+'" onchange="setSim(\''+k+'\',this.value)"></div>'}
+  h+=fold('base','Base de calcul','chiffre d\'affaires de référence · prix actuels',
+    inp('cab','Chiffre d\'affaires box (12 mois)')+inp('cam','Chiffre d\'affaires maison (12 mois)')+inp('nsej','Nombre de séjours (12 mois)')+
+    '<p class="note">Valeurs de CdC Manager 2026 (25 558 € box, 6 688 € maison, 215 séjours) : à mettre à jour une fois par an.</p>'+
+    inp('pb','Prix actuel d\'une nuit en box (€)')+inp('pm','Prix actuel d\'une nuit à la maison (€)')+
+    '<p class="note">Les prix servent seulement à afficher les nouveaux tarifs ; le calcul se fait sur le chiffre d\'affaires de chaque activité. Urssaf : '+pct(b.tx)+' des encaissements.</p>');
+  return h;
+}
+function slider(k,lab,p,ca){
+  var v=+SU[k]||0;
+  return '<div class="sl"><div class="srow"><label for="r-'+k+'"><b>'+lab+'</b> <span class="note">('+eur(ca)+' / an)</span></label><b class="num" id="o-'+k+'">+ '+v+' %</b></div>'+
+    '<input type="range" id="r-'+k+'" min="0" max="30" step="1" value="'+v+'" data-sl="'+k+'" aria-label="Hausse '+lab+' en pourcentage">'+
+    '<p class="note" id="p-'+k+'">'+(+p?'Nuit : '+prixN(p,0)+' → <b>'+prixN(p,v/100)+'</b>':'')+'</p></div>';
+}
+function tarOut(b){
+  var CB=+SP('cab'),CM=+SP('cam'),CT=CB+CM,NS=+SP('nsej')||1,h='';
+  if(SU.mode==='vise'){
+    var tgt=+SU.tgt||b.goal,need=Math.max(0,tgt-b.sout),ca=need*12/(1-b.tx);
+    if(!need)return '<div class="card sc"><p class="verdict">✓ <b>'+eur(tgt)+' par mois</b> est déjà possible avec les tarifs actuels (soutenable : '+eur(b.sout)+'). Pas besoin d\'augmenter.</p></div>';
+    var hb=SU.split==='mai'?0:(SU.split==='box'?ca/CB:ca/CT),hm=SU.split==='box'?0:(SU.split==='mai'?ca/CM:ca/CT),sj=sejours(need,b);
+    h='<div class="card sc result"><span class="lbl">Hausse de tarif nécessaire</span>'+
+      '<div class="bigline">'+(SU.split==='tout'?'<b>+ '+pct(hb)+'</b> sur tous les tarifs':SU.split==='box'?'<b>+ '+pct(hb)+'</b> sur les box':'<b>+ '+pct(hm)+'</b> sur la maison')+'</div>'+
+      '<div class="kv">'+(hb?'<span>Nuit en box</span><b class="num">'+(+SP('pb')?prixN(SP('pb'),0)+' → '+prixN(SP('pb'),hb):'+ '+pct(hb))+'</b>':'')+
+        (hm?'<span>Nuit à la maison</span><b class="num">'+(+SP('pm')?prixN(SP('pm'),0)+' → '+prixN(SP('pm'),hm):'+ '+pct(hm))+'</b>':'')+
+        '<span>Chiffre d\'affaires en plus</span><b class="num">+ '+eur(up100(ca))+' / an</b><span>Après Urssaf</span><b class="num">+ '+eur(need)+' / mois</b></div>'+
+      '<p class="verdict">Pour passer de <b>'+eur(b.sout)+'</b> (soutenable aujourd\'hui) à <b>'+eur(tgt)+'</b> par mois.</p>'+
+      (SU.split!=='tout'&&(hb>0.3||hm>0.3)?'<div class="expl warn">Hausse forte sur une seule activité : la répartir sur box + maison est plus doux pour les clients.</div>':'')+
+      '<p class="note">Autre chemin, sans toucher aux tarifs : ~'+sj.an+' séjours de plus par an (≈ '+sj.pm+' par mois).</p></div>';
+  }else{
+    var gb=CB*(+SU.hb||0)/100,gm=CM*(+SU.hm||0)/100,gain=gb+gm,net=gain*(1-b.tx)/12,ns=b.sout+net,glob=CT?gain/CT:0;
+    var lo=Math.floor(Math.min(b.sout,b.act)*0.8/500)*500,hi=Math.ceil(Math.max(ns,b.goal,b.act)*1.1/500)*500;
+    function p(v){return ((v-lo)/(hi-lo)*100).toFixed(1)+'%'}
+    var st=ns>=b.goal?'<span class="spill ok"><i></i>Objectif atteint</span>':'<span class="spill warn"><i></i>Il manque '+eur(b.goal-ns)+' / mois</span>';
+    h='<div class="card sc result"><div class="between"><span class="lbl">Salaire possible avec cette hausse</span>'+st+'</div>'+
+      '<div class="bigline"><span class="muted num">'+eur(b.sout)+'</span> → <b class="num">'+eur(ns)+'</b> <span class="note">par mois</span></div>'+
+      '<div class="mini"><div class="trk"></div><div class="fill old" style="width:'+p(b.sout)+'"></div><div class="fill new" style="left:'+p(b.sout)+';width:calc('+p(ns)+' - '+p(b.sout)+')"></div>'+
+        '<div class="tick" style="left:'+p(b.goal)+';border-color:var(--m-goal)"><span style="color:var(--m-goal)">Objectif '+eur(b.goal)+'</span></div>'+
+        '<div class="tick dn" style="left:'+p(b.act)+';border-color:var(--m-act)"><span style="color:var(--m-act)">Actuel '+eur(b.act)+'</span></div></div>'+
+      '<div class="kv"><span>Hausse moyenne de tous les tarifs</span><b class="num">+ '+pct(glob)+'</b>'+
+        '<span>Chiffre d\'affaires en plus</span><b class="num">+ '+eur(gain)+' / an</b>'+
+        '<span class="muted">dont box / maison</span><span class="num muted">'+eur(gb)+' / '+eur(gm)+'</span>'+
+        '<span>Après Urssaf</span><b class="num">+ '+eur(net)+' / mois</b>'+
+        '<span>Séjour moyen</span><b class="num">'+eur(CT/NS)+' → '+eur(CT*(1+glob)/NS)+'</b></div>'+
+      (gain?'':'<p class="note">Bougez les curseurs pour voir l\'effet d\'une hausse.</p>')+'</div>';
+  }
+  return h+'<p class="note" style="padding:0 4px">Projection à nombre de séjours égal : si une hausse fait partir des clients, le gain réel sera plus faible.</p>';
+}
+function bindTar(){
+  document.querySelectorAll('#v-sim input[data-sl]').forEach(function(r){
+    r.oninput=function(){var k=r.dataset.sl;SU[k]=r.value;$('o-'+k).textContent='+ '+r.value+' %';
+      var p=SP(k==='hb'?'pb':'pm'),e=$('p-'+k);if(e&&+p)e.innerHTML='Nuit : '+prixN(p,0)+' → <b>'+prixN(p,r.value/100)+'</b>';
+      $('tar-out').innerHTML=tarOut(simBase())};
+  });
+}
+/* échelle : glisser les ronds Actuel / Objectif, ou toucher le montant pour le taper */
+var SC={lo:0,hi:3000};
+function simSetKey(key,v){if(key==='goal'){setGoal(String(v));refresh()}else setSim('sa',String(v))}
+function bindScale(){
+  var sc=$('scale');if(!sc)return;
+  sc.querySelectorAll('.knob').forEach(function(k){
+    var key=k.dataset.key,m=k.parentNode,lab=m.querySelector('.val'),cur=null;
+    function setV(v){v=Math.max(SC.lo,Math.min(SC.hi,Math.round(v/50)*50));m.style.left=((v-SC.lo)/(SC.hi-SC.lo)*100)+'%';lab.textContent=eur(v);k.setAttribute('aria-valuenow',v);cur=v}
+    k.onpointerdown=function(e){
+      e.preventDefault();try{k.setPointerCapture(e.pointerId)}catch(x){}k.style.cursor='grabbing';
+      k.onpointermove=function(ev){var r=sc.getBoundingClientRect();setV(SC.lo+(ev.clientX-r.left)/r.width*(SC.hi-SC.lo))};
+      k.onpointerup=k.onpointercancel=function(){k.onpointermove=null;k.onpointerup=null;if(cur!=null)simSetKey(key,cur);else renderSim()};
+    };
+    k.onkeydown=function(e){var d=e.key==='ArrowRight'||e.key==='ArrowUp'?50:e.key==='ArrowLeft'||e.key==='ArrowDown'?-50:0;
+      if(d){e.preventDefault();setV((cur!=null?cur:+k.getAttribute('aria-valuenow'))+d);clearTimeout(k._t);k._t=setTimeout(function(){simSetKey(key,cur);var n=document.querySelector('.knob[data-key="'+key+'"]');if(n)n.focus()},600)}};
+  });
+  sc.querySelectorAll('.val[data-key]').forEach(function(el){
+    el.onclick=function(){
+      var key=el.dataset.key,v0=key==='goal'?S.goal:Math.round(simBase().act);
+      el.outerHTML='<input type="text" inputmode="numeric" id="ed-'+key+'" value="'+v0+'" aria-label="Montant">';
+      var i=$('ed-'+key);i.focus();i.select();var done=false;
+      function ok(){if(done)return;done=true;var v=i.value.replace(/\D/g,'');if(v)simSetKey(key,v);else renderSim()}
+      i.onblur=ok;i.onkeydown=function(ev){if(ev.key==='Enter')ok();if(ev.key==='Escape'){done=true;renderSim()}};
+    };
+  });
+}
+
 /* ====================== Synchronisation Google Sheet ====================== */
 var CFG=window.CDCF_CONFIG||{},API=CFG.apiUrl||'';
 var LS_DATA='cdcfin.data',LS_CODE='cdcfin.code',LS_DEV='cdcfin.dev';
@@ -1100,8 +1417,8 @@ var DEV=lsGet(LS_DEV);if(!DEV){DEV=uid('a');lsSet(LS_DEV,DEV)}
 var CODE=lsGet(LS_CODE)||'';
 var SY={rev:null,base:null,busy:false,err:'',okAt:0,wait:0,tries:0,sheetUrl:'',saved:''};
 
-function dataObj(){return {init:S.init,initDate:S.initDate,deps:S.deps,sorties:S.sorties,exps:S.exps,goal:S.goal,goalOn:S.goalOn,noauto:S.noauto,bk:S.bk}}
-function emptyData(){return {init:{ent:0,liv:0,esp:0},initDate:DEF_DATE,deps:[],sorties:[],exps:[],goal:1800,goalOn:false,noauto:[],bk:{ok:'',cls:{},rules:{},keep:[]}}}
+function dataObj(){return {init:S.init,initDate:S.initDate,deps:S.deps,sorties:S.sorties,exps:S.exps,goal:S.goal,goalOn:S.goalOn,noauto:S.noauto,bk:S.bk,sim:S.sim}}
+function emptyData(){return {init:{ent:0,liv:0,esp:0},initDate:DEF_DATE,deps:[],sorties:[],exps:[],goal:1800,goalOn:false,noauto:[],bk:{ok:'',cls:{},rules:{},keep:[]},sim:{}}}
 function norm(o){
   var i=o.init||{};
   return {
@@ -1111,12 +1428,14 @@ function norm(o){
     sorties:(o.sorties||[]).map(function(s){return {id:s.id,date:s.date,pm:(/^\d{4}-\d{2}$/.test(s.pm||'')?s.pm:pmNext(s.date)),lines:s.lines.map(function(l){var r={c:l.c,m:+l.m,r:!!l.r};if(l.b)r.b=l.b;if(l.t)r.t=l.t;return r})}}),
     exps:(o.exps||[]).map(function(x){var r={id:x.id,date:x.date,label:x.label,lines:x.lines.map(function(l){return {c:l.c,m:+l.m}})};if(x.b)r.b=x.b;if(x.tr)r.tr=x.tr;return r}),
     goal:o.goal!=null?+o.goal:1800,goalOn:!!o.goalOn,noauto:(o.noauto||[]).slice(),
-    bk:normBk(o.bk)
+    bk:normBk(o.bk),
+    sim:normSim(o.sim)
   };
 }
 function normBk(b){b=b||{};var o={ok:b.ok||'',cls:{},rules:{},keep:(b.keep||[]).slice()},k;
   Object.keys(b.cls||{}).sort().forEach(function(k){o.cls[k]=b.cls[k]});Object.keys(b.rules||{}).sort().forEach(function(k){o.rules[k]=b.rules[k]});return o}
-function setData(o){var n=norm(o);S.init=n.init;S.initDate=n.initDate;S.deps=n.deps;S.sorties=n.sorties;S.exps=n.exps;S.goal=n.goal;S.goalOn=n.goalOn;S.noauto=n.noauto;S.bk=n.bk}
+function normSim(o){var r={};Object.keys(o||{}).sort().forEach(function(k){if(SIMDEF.hasOwnProperty(k)&&o[k]!==''&&o[k]!=null)r[k]=String(o[k])});return r}
+function setData(o){var n=norm(o);S.init=n.init;S.initDate=n.initDate;S.deps=n.deps;S.sorties=n.sorties;S.exps=n.exps;S.goal=n.goal;S.goalOn=n.goalOn;S.noauto=n.noauto;S.bk=n.bk;S.sim=n.sim}
 
 /* fusion à trois points : base (dernier état connu du serveur), local, serveur */
 function merge(base,loc,srv){
@@ -1145,16 +1464,19 @@ function merge(base,loc,srv){
   ['cls','rules'].forEach(function(f){Object.keys(lb[f]).forEach(function(k){if(lb[f][k]!==bb[f][k])ob[f][k]=lb[f][k]})});
   lb.keep.forEach(function(x){if(ob.keep.indexOf(x)<0)ob.keep.push(x)});
   out.bk=normBk(ob);
+  var bs=normSim(base.sim),ls=normSim(loc.sim),ss=normSim(srv.sim),os=Object.assign({},ss);
+  Object.keys(SIMDEF).forEach(function(k){if(ls[k]!==bs[k]){if(ls[k]==null)delete os[k];else os[k]=ls[k]}});
+  out.sim=normSim(os);
   return out;
 }
 
 function persist(){
-  var s=JSON.stringify({rev:SY.rev,base:SY.base,data:dataObj(),bank:BK});
+  var s=JSON.stringify({rev:SY.rev,base:SY.base,data:dataObj(),bank:BK,hist:HIST});
   if(s!==SY.saved){lsSet(LS_DATA,s);SY.saved=s}
 }
 (function loadLocal(){
   var r=lsGet(LS_DATA);if(!r)return;
-  try{var o=JSON.parse(r);setData(o.data||{});SY.rev=(o.rev==null)?null:o.rev;SY.base=o.base||null;BK=o.bank||null;SY.saved=r}catch(e){}
+  try{var o=JSON.parse(r);setData(o.data||{});SY.rev=(o.rev==null)?null:o.rev;SY.base=o.base||null;BK=o.bank||null;HIST=o.hist||[];SY.saved=r}catch(e){}
 })();
 
 function call(fn,args){
@@ -1203,6 +1525,7 @@ function pull(){
     SY.busy=false;if(handle(r))return;
     okSync();SY.sheetUrl=r.sheetUrl||SY.sheetUrl;SY.ver=r.version||SY.ver;
     var bch=r.bank&&JSON.stringify(r.bank)!==JSON.stringify(BK);if(r.bank)BK=r.bank;
+    if(r.hist&&JSON.stringify(r.hist)!==JSON.stringify(HIST)){HIST=r.hist;bch=true}
     if(r.empty){SY.rev=r.rev||0;SY.base=JSON.stringify(emptyData());persist();SY.first=false;autoRec();if(bch)refresh();paintSync();afterPull();return}
     takeRemote(r.state,r.rev,SY.rev===null);
     if(bch){persist();refresh();if(S.view==='set')renderSet()}

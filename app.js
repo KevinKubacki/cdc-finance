@@ -5,7 +5,7 @@ var KEYS=['ent','liv','esp'],SKEYS=['ent','liv','esp','dir'];   /* dir = payé d
 function pad2(n){return n<10?'0'+n:''+n}
 function todayISO(){var d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())}
 var TODAY=todayISO();
-var VERSION='2.4';
+var VERSION='2.5';
 var DEF_DATE='2026-08-31';
 var S={
   initDate:DEF_DATE,init:{ent:0,liv:0,esp:0},deps:[],sorties:[],exps:[],noauto:[],bk:{ok:'',cls:{},rules:{},keep:[]},sim:{},
@@ -1112,15 +1112,17 @@ function simMonths(){
   S.deps.forEach(function(d){if(!d.tr&&d.date>S.initDate)g(d.date.slice(0,7)).dep+=d.m});
   S.exps.forEach(function(x){if(x.tr||x.date<=S.initDate)return;var m=g(x.date.slice(0,7));if(/URSSAF/i.test(x.label))m.urs+=sumL(x);else m.chg+=sumL(x)});
   S.sorties.forEach(function(s){var t=0;s.lines.forEach(function(l){if(l.c!=='dir')t+=l.m});g(spm(s)).sal+=t});
-  var appChg=[],sal=[];
+  var appChg=[],SM=[];
+  Object.keys(A).forEach(function(k){if(A[k].sal>0&&k>appFrom&&k<=mAdd(cur,1))SM.push(k)});SM.sort();
+  var sal=[];if(SM.length){var k0=SM[0],k1=SM[SM.length-1];if(mAdd(k1,-11)>k0)k0=mAdd(k1,-11);for(var q=k0;q<=k1;q=mAdd(q,1))sal.push(A[q]?A[q].sal:0)}
   for(var i=0;i<12;i++){
     var k=mAdd(start,i);
-    if(k>appFrom){var a=A[k]||{dep:0,urs:0,chg:0,sal:0};rows.push({k:k,dep:a.dep,urs:a.urs,chg:a.chg,src:'app'});appChg.push(a.chg);sal.push(a.sal)}
+    if(k>appFrom){var a=A[k]||{dep:0,urs:0,chg:0,sal:0};rows.push({k:k,dep:a.dep,urs:a.urs,chg:a.chg,src:'app'});appChg.push(a.chg)}
     else if(hm[k])rows.push({k:k,dep:+hm[k].dep||0,urs:+hm[k].urs||0,chg:null,src:'hist'});
   }
   var chgAvg=appChg.length?simSum(appChg)/appChg.length:+SP('chg');
   rows.forEach(function(r){if(r.chg==null)r.chg=chgAvg;r.d=r.dep-r.urs-r.chg;r.m=MOIS(r.k)});
-  return {rows:rows,n:rows.length,nApp:appChg.length,nHist:rows.length-appChg.length,salAvg:sal.length?simSum(sal)/sal.length:null,chgAvg:chgAvg};
+  return {rows:rows,n:rows.length,nApp:appChg.length,nHist:rows.length-appChg.length,salAvg:sal.length?simSum(sal)/sal.length:null,nSal:sal.length,chgAvg:chgAvg};
 }
 function simBase(){
   var M=simMonths(),n=M.n||1,dep=simSum(M.rows.map(function(r){return r.dep})),urs=simSum(M.rows.map(function(r){return r.urs}));
@@ -1247,7 +1249,7 @@ function simSal(b){
     '<div class="slegend">'+
       '<i style="background:var(--m-sout)"></i><span>Soutenable : ce que l\'activité permet</span><b class="num">'+eur(b.sout)+'</b>'+
       '<i style="background:var(--m-act)"></i><span>Actuel : ce qu\'elle se verse</span><b class="num">'+eur(b.act)+'</b>'+
-      (b.avg?'<i style="background:var(--m-avg)"></i><span>Moyen versé ('+b.M.nApp+' mois)</span><b class="num">'+eur(b.avg)+'</b>':'')+
+      (b.avg?'<i style="background:var(--m-avg)"></i><span>Moyen versé ('+b.M.nSal+' mois)</span><b class="num">'+eur(b.avg)+'</b>':'')+
       '<i style="background:var(--m-goal)"></i><span>Objectif</span><b class="num">'+eur(b.goal)+'</b></div>';
   if(!over)h+='<p class="verdict">✓ Le salaire actuel est tenable : il reste ~'+eur(b.sout-b.act)+' de marge par mois.</p>';
   if(b.goal>b.act){
@@ -1314,11 +1316,12 @@ function setSim(k,v){
 /* ---------- tarifs et projections ---------- */
 function pct(x){return (x*100).toLocaleString('fr-FR',{maximumFractionDigits:1})+' %'}
 function prixN(p,h){p=+p;return p?(p*(1+h)).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €':''}
+function prixUp(p,h){p=+p;return Math.ceil(p*(1+h)*2-1e-9)/2}
 function simTar(b){
   if(!SU.tgt)SU.tgt=String(Math.round(b.goal));
   var CB=+SP('cab'),CM=+SP('cam'),NS=+SP('nsej');
   function seg(k,v,l){return '<button class="tg" aria-pressed="'+(SU[k]===v)+'" onclick="SU.'+k+'=\''+v+'\';renderSim()">'+l+'</button>'}
-  var h='<div class="card sc"><b class="ft">Que faire des tarifs ?</b><div class="frow">'+seg('mode','vise','Je vise un salaire')+seg('mode','hausse','Je fixe une hausse')+'</div>'+
+  var h='<div class="card sc"><b class="ft">Que faire des tarifs ?</b><div class="seg2">'+seg('mode','vise','Je vise un salaire')+seg('mode','hausse','Je fixe une hausse')+'</div>'+
     '<p class="note">'+(SU.mode==='vise'?'Indiquez le salaire voulu : l\'appli calcule la hausse de tarif nécessaire.':'Réglez la hausse des box et de la maison : l\'appli calcule ce qu\'elle rapporte et le salaire possible.')+'</p>';
   if(SU.mode==='vise'){
     function ch(v,l){return '<button class="tg" aria-pressed="'+(+SU.tgt===Math.round(v))+'" onclick="SU.tgt=\''+Math.round(v)+'\';renderSim()">'+l+' '+eur(v)+'</button>'}
@@ -1330,16 +1333,20 @@ function simTar(b){
   function inp(k,lab){return '<div class="srow"><label for="sim-'+k+'">'+lab+'</label><input type="text" id="sim-'+k+'" inputmode="decimal" value="'+esc(SP(k))+'" onchange="setSim(\''+k+'\',this.value)"></div>'}
   h+=fold('base','Base de calcul','chiffre d\'affaires de référence · prix actuels',
     inp('cab','Chiffre d\'affaires box (12 mois)')+inp('cam','Chiffre d\'affaires maison (12 mois)')+inp('nsej','Nombre de séjours (12 mois)')+
-    '<p class="note">Valeurs de CdC Manager 2026 (25 558 € box, 6 688 € maison, 215 séjours) : à mettre à jour une fois par an.</p>'+
+    '<p class="note">Par défaut : année 2026 de CdC Manager (janvier → décembre, réservations à venir comprises : 25 558 € box, 6 688 € maison, 215 séjours). Ce sont des valeurs fixes : à mettre à jour une fois par an.</p>'+
     inp('pb','Prix actuel d\'une nuit en box (€)')+inp('pm','Prix actuel d\'une nuit à la maison (€)')+
     '<p class="note">Les prix servent seulement à afficher les nouveaux tarifs ; le calcul se fait sur le chiffre d\'affaires de chaque activité. Urssaf : '+pct(b.tx)+' des encaissements.</p>');
   return h;
 }
+/* hausse réglée en euros par nuit (pas de 0,50 €) quand le prix est connu, sinon en % */
+function hPct(k){var p=+SP(k==='hb'?'pb':'pm'),v=+SU[k]||0;return p?v/p:v/100}
+function e2(n){return n.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'}
+function slTxt(k){var p=+SP(k==='hb'?'pb':'pm'),v=+SU[k]||0;return p?'+ '+e2(v)+' <span class="note">(+ '+pct(v/p)+')</span>':'+ '+v+' %'}
 function slider(k,lab,p,ca){
-  var v=+SU[k]||0;
-  return '<div class="sl"><div class="srow"><label for="r-'+k+'"><b>'+lab+'</b> <span class="note">('+eur(ca)+' / an)</span></label><b class="num" id="o-'+k+'">+ '+v+' %</b></div>'+
-    '<input type="range" id="r-'+k+'" min="0" max="30" step="1" value="'+v+'" data-sl="'+k+'" aria-label="Hausse '+lab+' en pourcentage">'+
-    '<p class="note" id="p-'+k+'">'+(+p?'Nuit : '+prixN(p,0)+' → <b>'+prixN(p,v/100)+'</b>':'')+'</p></div>';
+  p=+p;var v=+SU[k]||0,mx=p?Math.max(5,Math.ceil(p*0.5*2)/2):30;if(v>mx)v=SU[k]=mx;
+  return '<div class="sl"><div class="srow"><label for="r-'+k+'"><b>'+lab+'</b> <span class="note">('+eur(ca)+' / an)</span></label><b class="num" id="o-'+k+'">'+slTxt(k)+'</b></div>'+
+    '<input type="range" id="r-'+k+'" min="0" max="'+mx+'" step="'+(p?'0.5':'1')+'" value="'+v+'" data-sl="'+k+'" aria-label="Hausse '+lab+(p?' en euros par nuit':' en pourcentage')+'">'+
+    '<p class="note" id="p-'+k+'">'+(p?'Nuit : '+e2(p)+' → <b>'+e2(p+v)+'</b>':'Indiquez le prix d\'une nuit dans « Base de calcul » pour régler la hausse par 0,50 €.')+'</p></div>';
 }
 function tarOut(b){
   var CB=+SP('cab'),CM=+SP('cam'),CT=CB+CM,NS=+SP('nsej')||1,h='';
@@ -1349,14 +1356,15 @@ function tarOut(b){
     var hb=SU.split==='mai'?0:(SU.split==='box'?ca/CB:ca/CT),hm=SU.split==='box'?0:(SU.split==='mai'?ca/CM:ca/CT),sj=sejours(need,b);
     h='<div class="card sc result"><span class="lbl">Hausse de tarif nécessaire</span>'+
       '<div class="bigline">'+(SU.split==='tout'?'<b>+ '+pct(hb)+'</b> sur tous les tarifs':SU.split==='box'?'<b>+ '+pct(hb)+'</b> sur les box':'<b>+ '+pct(hm)+'</b> sur la maison')+'</div>'+
-      '<div class="kv">'+(hb?'<span>Nuit en box</span><b class="num">'+(+SP('pb')?prixN(SP('pb'),0)+' → '+prixN(SP('pb'),hb):'+ '+pct(hb))+'</b>':'')+
-        (hm?'<span>Nuit à la maison</span><b class="num">'+(+SP('pm')?prixN(SP('pm'),0)+' → '+prixN(SP('pm'),hm):'+ '+pct(hm))+'</b>':'')+
+      '<div class="kv">'+(hb?'<span>Nuit en box</span><b class="num">'+(+SP('pb')?prixN(SP('pb'),0)+' → '+e2(prixUp(SP('pb'),hb)):'+ '+pct(hb))+'</b>':'')+
+        (hm?'<span>Nuit à la maison</span><b class="num">'+(+SP('pm')?prixN(SP('pm'),0)+' → '+e2(prixUp(SP('pm'),hm)):'+ '+pct(hm))+'</b>':'')+
         '<span>Chiffre d\'affaires en plus</span><b class="num">+ '+eur(up100(ca))+' / an</b><span>Après Urssaf</span><b class="num">+ '+eur(need)+' / mois</b></div>'+
       '<p class="verdict">Pour passer de <b>'+eur(b.sout)+'</b> (soutenable aujourd\'hui) à <b>'+eur(tgt)+'</b> par mois.</p>'+
+      ((hb&&+SP('pb'))||(hm&&+SP('pm'))?'<p class="note">Nouveaux prix arrondis au 0,50 € supérieur.</p>':'')+
       (SU.split!=='tout'&&(hb>0.3||hm>0.3)?'<div class="expl warn">Hausse forte sur une seule activité : la répartir sur box + maison est plus doux pour les clients.</div>':'')+
       '<p class="note">Autre chemin, sans toucher aux tarifs : ~'+sj.an+' séjours de plus par an (≈ '+sj.pm+' par mois).</p></div>';
   }else{
-    var gb=CB*(+SU.hb||0)/100,gm=CM*(+SU.hm||0)/100,gain=gb+gm,net=gain*(1-b.tx)/12,ns=b.sout+net,glob=CT?gain/CT:0;
+    var gb=CB*hPct('hb'),gm=CM*hPct('hm'),gain=gb+gm,net=gain*(1-b.tx)/12,ns=b.sout+net,glob=CT?gain/CT:0;
     var lo=Math.floor(Math.min(b.sout,b.act)*0.8/500)*500,hi=Math.ceil(Math.max(ns,b.goal,b.act)*1.1/500)*500;
     function p(v){return ((v-lo)/(hi-lo)*100).toFixed(1)+'%'}
     var st=ns>=b.goal?'<span class="spill ok"><i></i>Objectif atteint</span>':'<span class="spill warn"><i></i>Il manque '+eur(b.goal-ns)+' / mois</span>';
@@ -1376,8 +1384,8 @@ function tarOut(b){
 }
 function bindTar(){
   document.querySelectorAll('#v-sim input[data-sl]').forEach(function(r){
-    r.oninput=function(){var k=r.dataset.sl;SU[k]=r.value;$('o-'+k).textContent='+ '+r.value+' %';
-      var p=SP(k==='hb'?'pb':'pm'),e=$('p-'+k);if(e&&+p)e.innerHTML='Nuit : '+prixN(p,0)+' → <b>'+prixN(p,r.value/100)+'</b>';
+    r.oninput=function(){var k=r.dataset.sl;SU[k]=r.value;$('o-'+k).innerHTML=slTxt(k);
+      var p=+SP(k==='hb'?'pb':'pm'),e=$('p-'+k);if(e&&p)e.innerHTML='Nuit : '+e2(p)+' → <b>'+e2(p+(+r.value))+'</b>';
       $('tar-out').innerHTML=tarOut(simBase())};
   });
 }

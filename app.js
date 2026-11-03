@@ -5,7 +5,7 @@ var KEYS=['ent','liv','esp'],SKEYS=['ent','liv','esp','dir'];   /* dir = payé d
 function pad2(n){return n<10?'0'+n:''+n}
 function todayISO(){var d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())}
 var TODAY=todayISO();
-var VERSION='2.6';
+var VERSION='2.7';
 var DEF_DATE='2026-08-31';
 var S={
   initDate:DEF_DATE,init:{ent:0,liv:0,esp:0},deps:[],sorties:[],exps:[],noauto:[],bk:{ok:'',cls:{},rules:{},keep:[]},sim:{},
@@ -1095,6 +1095,7 @@ function bankReturn(){
 /* ====================== Simulateur (V2.4) ======================
    Salaire soutenable, période creuse, tampon d'alerte, minimum sur le Compte entreprise, projections de tarifs.
    Calculs sur les 12 derniers mois complets : les mois suivis par l'appli + l'historique saisi dans l'onglet « Historique » du Sheet. */
+var MGR=null;                      /* CdC Manager (V2.7) : {ok,months:[{m,tot,decl,dd,box,mai,n}],pb,pm,taux,at,err} lu par le script */
 var HIST=[];                       /* [{m:'AAAA-MM',dep,urs}] : avant l'appli (CdC Manager + Urssaf réelle), lu dans le Sheet */
 var SIMDEF={sa:'',urs:'mois',tamp:'',prix:'150',sej:'18',pb:'',pm:'',cab:'25558',cam:'6688',nsej:'215',chg:'250'};
 var SU={sv:'sal',sim:'act',free:'',mode:'vise',tgt:'',split:'tout',hb:'0',hm:'0',reg:false,base:false,guide:false,det:false,info:false};
@@ -1104,8 +1105,29 @@ function up100(n){return Math.ceil(n/100)*100}
 function sgE(n){return (n>=0?'+ ':'− ')+eur(Math.abs(n))}
 function simSum(a){var t=0;a.forEach(function(x){t+=x});return t}
 
+/* ---------- charges : prélèvements du compte pro (hors Urssaf), moyenne des mois complets suivis ---------- */
+function isPrlv(x){return !x.tr&&/(PRLV|PR[EÉ]L[EÈ]VEMENT)/i.test(x.label||'')&&!/URSSAF/i.test(x.label||'')}
+function chgAuto(){
+  var from=mAdd(S.initDate.slice(0,7),1),to=mAdd(TODAY.slice(0,7),-1),ms=[];
+  for(var k=from;k<=to;k=mAdd(k,1))ms.push(k);
+  if(!ms.length)return null;
+  var t=0;S.exps.forEach(function(x){var m=x.date.slice(0,7);if(m<from||m>to||!isPrlv(x))return;x.lines.forEach(function(l){if(l.c==='ent')t+=l.m})});
+  return {v:t/ms.length,n:ms.length,from:from,to:to};
+}
+function chgVal(){var set=S.sim&&S.sim.chg!=null&&S.sim.chg!=='';if(set)return {v:+S.sim.chg,set:true};var a=chgAuto();return a?{v:a.v,auto:a}:{v:+SIMDEF.chg,def:true}}
+function mgrOk(){return !!(MGR&&MGR.ok&&MGR.months)}
+function mgrMonth(k){var o=null;(MGR&&MGR.months||[]).forEach(function(x){if(x.m===k)o=x});return o||{m:k,tot:0,decl:0,dd:0,box:0,mai:0,n:0}}
+/* 12 derniers mois complets d'après CdC Manager : séjours au mois d'arrivée, Urssaf = déclaré × taux, charges = prélèvements */
+function simMonthsMgr(){
+  var cur=TODAY.slice(0,7),start=mAdd(cur,-12),C=chgVal(),rows=[],box=0,mai=0,n=0;
+  for(var i=0;i<12;i++){var k=mAdd(start,i),o=mgrMonth(k),urs=o.decl*MGR.taux;
+    rows.push({k:k,dep:o.tot,decl:o.decl,urs:urs,chg:C.v,d:o.tot-urs-C.v,m:MOIS(k),src:'mgr',n:o.n});box+=o.box;mai+=o.mai;n+=o.n}
+  return {rows:rows,n:12,nApp:0,nHist:0,mgr:true,chgAvg:C.v,chg:C,box:box,mai:mai,nsej:n};
+}
+
 /* ---------- les données des 12 derniers mois ---------- */
 function simMonths(){
+  var MM=null;if(mgrOk())MM=simMonthsMgr();
   var cur=TODAY.slice(0,7),start=mAdd(cur,-12),appFrom=S.initDate.slice(0,7),A={},hm={},rows=[];
   HIST.forEach(function(h){hm[h.m]=h});
   function g(k){return A[k]||(A[k]={dep:0,urs:0,chg:0,sal:0})}
@@ -1124,32 +1146,52 @@ function simMonths(){
   var appAvg=appChg.length?simSum(appChg)/appChg.length:null,set=S.sim&&S.sim.chg!=null&&S.sim.chg!=='';
   var chgHist=set?+S.sim.chg:appAvg!=null?appAvg:+SIMDEF.chg,chgAvg=appAvg!=null?appAvg:chgHist;
   rows.forEach(function(r){if(r.chg==null)r.chg=chgHist;r.d=r.dep-r.urs-r.chg;r.m=MOIS(r.k)});
-  return {rows:rows,n:rows.length,nApp:appChg.length,nHist:rows.length-appChg.length,salAvg:sal.length?simSum(sal)/sal.length:null,nSal:sal.length,chgAvg:chgAvg,chgHist:chgHist,chgSet:set,appAvg:appAvg};
+  var salAvg=sal.length?simSum(sal)/sal.length:null;
+  if(MM){MM.salAvg=salAvg;MM.nSal=sal.length;return MM}
+  return {rows:rows,n:rows.length,nApp:appChg.length,nHist:rows.length-appChg.length,salAvg:salAvg,nSal:sal.length,chgAvg:chgAvg,chgHist:chgHist,chgSet:set,appAvg:appAvg};
 }
 function simBase(){
   var M=simMonths(),n=M.n||1,dep=simSum(M.rows.map(function(r){return r.dep})),urs=simSum(M.rows.map(function(r){return r.urs}));
   var sout=simSum(M.rows.map(function(r){return r.d}))/n,avg=M.salAvg;
   var act=+SP('sa')||avg||sout;
-  return {M:M,dep:dep/n,urs:urs/n,chg:M.chgAvg,sout:sout,avg:avg,act:act,goal:+S.goal||2100,tx:dep?urs/dep:0.2,ok:M.n>=3};
+  return {M:M,dep:dep/n,urs:urs/n,chg:M.chgAvg,sout:sout,avg:avg,act:act,goal:+S.goal||2100,tx:dep?urs/dep:0.2,ok:M.n>=3,mgr:!!M.mgr};
 }
+/* période creuse : pire déficit cumulé sur des mois qui se suivent, en boucle (décembre enchaîne sur janvier) */
 function simRun(b,x){
-  var run=0,worst=0,wi=0,ws=0,st=0,short=0,rows=[];
-  b.M.rows.forEach(function(r,i){var d=r.d-x;if(run===0&&d<0)st=i;run=Math.min(0,run+d);if(run<worst){worst=run;wi=i;ws=st}if(d<0)short++;rows.push({m:r.m,k:r.k,d:r.d,r:d,res:run})});
-  return {rows:rows,worst:-worst,wi:wi,ws:ws,short:short,year:simSum(b.M.rows.map(function(r){return r.d}))*12/(b.M.n||1)-12*x};
+  var R=b.M.rows,N=R.length,short=0,rows=[],worst=0,ws=0,wi=0;
+  R.forEach(function(r){var d=r.d-x;if(d<0)short++;rows.push({m:r.m,k:r.k,d:r.d,r:d})});
+  for(var i=0;i<N;i++){var run=0;for(var j=0;j<N;j++){run+=rows[(i+j)%N].r;if(run<worst){worst=run;ws=i;wi=(i+j)%N}}}
+  return {rows:rows,worst:-worst,wi:wi,ws:ws,short:short,year:simSum(R.map(function(r){return r.d}))*12/(N||1)-12*x};
 }
+function creuxRows(s){var o=[],N=s.rows.length,i=s.ws;for(var c=0;c<N;c++){o.push(s.rows[i]);if(i===s.wi)break;i=(i+1)%N}return o}
 function simSeuils(b){
   var s=simRun(b,b.act),uc=b.urs+b.chg,red=up100(b.act),conseil=Math.max(up100(s.worst+uc),red+100);
   var q={};b.M.rows.forEach(function(r){var y=r.k.slice(0,4),qq=y+'-'+Math.floor((+r.k.slice(5,7)-1)/3);q[qq]=(q[qq]||0)+r.urs});
   var maxM=0;b.M.rows.forEach(function(r){maxM=Math.max(maxM,r.urs)});
   var maxQ=0;for(var k in q)maxQ=Math.max(maxQ,q[k]);
-  var bfr=up100((SP('urs')==='trim'?maxQ:maxM)+b.chg);
-  return {red:red,conseil:conseil,tamp:+SP('tamp')||conseil,manual:!!+SP('tamp'),bfr:bfr,worst:s.worst,uc:uc,ws:s.ws,wi:s.wi,rows:s.rows};
+  var bfr=up100((SP('urs')==='trim'?maxQ:maxM)+b.chg),due=b.mgr?ursDue():null;
+  if(due)bfr=up100(due.v+b.chg+100);
+  return {red:red,conseil:conseil,tamp:+SP('tamp')||conseil,manual:!!+SP('tamp'),bfr:bfr,due:due,worst:s.worst,uc:uc,ws:s.ws,wi:s.wi,rows:s.rows};
+}
+/* Urssaf due pas encore prélevée : CA déclaré des séjours déjà arrivés depuis la fin de la période couverte par le dernier prélèvement Urssaf.
+   Mensuelle : un prélèvement du mois P couvre jusqu'à fin P-1. Trimestrielle : il couvre le trimestre fini avant P. */
+function ursDue(){
+  if(!mgrOk())return null;
+  var trim=SP('urs')==='trim',last='';
+  S.exps.forEach(function(x){if(!x.tr&&/URSSAF/i.test(x.label||'')&&x.date>last)last=x.date});
+  var cur=TODAY.slice(0,7),P=last?last.slice(0,7):mAdd(cur,-1);
+  function qs(k){var m=+k.slice(5,7);return k.slice(0,5)+('0'+(Math.floor((m-1)/3)*3+1)).slice(-2)}
+  var from=trim?qs(P):(last?P:mAdd(cur,-1));
+  var v=0;for(var k=from;k<=cur;k=mAdd(k,1))v+=mgrMonth(k).dd*MGR.taux;
+  return {v:v,from:from,last:last,trim:trim};
 }
 function periode(s){var a=s.rows[s.ws],z=s.rows[s.wi];return s.ws===s.wi?z.m:'de '+a.m+' à '+z.m}
+/* prix moyen d'un séjour et séjours par mois : CdC Manager (12 mois) sinon réglages par défaut */
+function sejDef(b){var M=b&&b.M;if(M&&M.mgr&&M.nsej){var t=simSum(M.rows.map(function(r){return r.dep}));return {prix:Math.round(t/M.nsej),sej:Math.round(M.nsej/12),mgr:true}}return {prix:+SIMDEF.prix,sej:+SIMDEF.sej}}
 /* séjours en plus pour combler un manque mensuel */
 function sejours(gap,b){
-  var prix=+SP('prix')||150,ca=gap*12/(1-b.tx),n=ca/prix,pm=n/12;
-  return {ca:up100(ca),an:Math.ceil(n),mois:Math.ceil(pm),pm:pm<10?pm.toLocaleString('fr-FR',{maximumFractionDigits:1}):String(Math.round(pm)),cur:+SP('sej')||18};
+  var D=sejDef(b),prix=+(S.sim&&S.sim.prix)||D.prix,ca=gap*12/(1-b.tx),n=ca/prix,pm=n/12;
+  return {ca:up100(ca),an:Math.ceil(n),mois:Math.ceil(pm),pm:pm<10?pm.toLocaleString('fr-FR',{maximumFractionDigits:1}):String(Math.round(pm)),cur:+(S.sim&&S.sim.sej)||D.sej};
 }
 function sejViz(s){
   var h='<div class="stays" aria-hidden="true">';
@@ -1166,7 +1208,7 @@ function simAlert(){
   if(st==='warn')band+=simBand('warn','!','Trésorerie sous le tampon',eur(tot)+' sur les 3 comptes, pour un tampon de '+eur(t.tamp)+'. Le prochain salaire passe, mais une période creuse ne serait plus couverte.');
   if(st==='bad')band+=simBand('bad','!!','Moins d\'un mois de salaire en caisse',eur(tot)+' sur les 3 comptes : moins que le salaire actuel ('+eur(b.act)+'). Mieux vaut réduire ou décaler le prochain versement.');
   var move=Math.floor((B.ent-t.bfr)/100)*100;
-  if(move>=100&&st!=='bad')band+=simBand('ok','€','Vous pouvez mettre '+eur(move)+' sur le Livret A','Le Compte entreprise n\'a besoin que de '+eur(t.bfr)+' (Urssaf '+(SP('urs')==='trim'?'du trimestre':'du mois')+' + charges).');
+  if(move>=100&&st!=='bad')band+=simBand('ok','€','Vous pouvez mettre '+eur(move)+' sur le Livret A','Le Compte entreprise garde '+eur(t.bfr)+' : '+(t.due?'l\'Urssaf déjà due ('+eur(t.due.v)+', séjours arrivés depuis le 1er '+MOIS(t.due.from)+') + les prélèvements du mois + une marge.':'Urssaf '+(SP('urs')==='trim'?'du trimestre':'du mois')+' + charges.'));
   return {pill:pill,band:band};
 }
 function simBand(c,ic,t,s){return '<div class="sband '+c+'"><span class="ic">'+ic+'</span><div><b>'+t+'</b><small>'+s+'</small></div></div>'}
@@ -1190,7 +1232,9 @@ function trajChart(s,tamp,T0){
   function X(i){return L+i/N*pw}function Y(v){return T+(hi-v)/(hi-lo)*ph}
   var g='';
   for(var v=lo;v<=hi+0.1;v+=n.step)g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v)+'" y2="'+Y(v)+'" style="stroke:var(--line)" stroke-dasharray="'+(v===0?'0':'3 3')+'"/><text x="'+(L-5)+'" y="'+(Y(v)+3)+'" text-anchor="end" style="fill:var(--muted);font-size:10px">'+(v<0?'− ':'')+kf(Math.abs(v))+'</text>';
-  var zone=s.worst>0?'<rect x="'+X(s.ws)+'" y="'+T+'" width="'+(X(s.wi+1)-X(s.ws))+'" height="'+ph+'" style="fill:var(--line);opacity:.55"/><text x="'+((X(s.ws)+X(s.wi+1))/2)+'" y="'+(T+11)+'" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:700">creux</text>':'';
+  function zr(a,z){return '<rect x="'+X(a)+'" y="'+T+'" width="'+(X(z+1)-X(a))+'" height="'+ph+'" style="fill:var(--line);opacity:.55"/>'}
+  var zt=function(a,z){return '<text x="'+((X(a)+X(z+1))/2)+'" y="'+(T+11)+'" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:700">creux</text>'};
+  var zone=!(s.worst>0)?'':s.ws<=s.wi?zr(s.ws,s.wi)+zt(s.ws,s.wi):zr(s.ws,N-1)+zr(0,s.wi)+((N-s.ws)>=(s.wi+1)?zt(s.ws,N-1):zt(0,s.wi));
   var neg=lo<0?'<rect x="'+L+'" y="'+Y(0)+'" width="'+pw+'" height="'+(Y(lo)-Y(0))+'" style="fill:var(--s-bad-bg)"/>':'';
   var pts=bal0.map(function(v,i){return X(i).toFixed(1)+','+Y(v).toFixed(1)}).join(' ');
   var area='<polygon points="'+X(0)+','+Y(Math.max(lo,0))+' '+pts+' '+X(N)+','+Y(Math.max(lo,0))+'" style="fill:var(--m-sout);opacity:.12"/>';
@@ -1200,18 +1244,25 @@ function trajChart(s,tamp,T0){
   return '<svg class="traj" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Évolution de l\'argent sur les 3 comptes mois par mois">'+neg+g+zone+area+tl+'<polyline points="'+pts+'" style="fill:none;stroke:var(--fg)" stroke-width="2" stroke-linejoin="round"/>'+dots+lab+'</svg>';
 }
 function simBar(k){SU.bar=SU.bar===k?'':k;renderSim()}
-function chgNote(b){var M=b.M;if(!M.nHist)return 'Chiffres réels de l\'appli (banque + saisies).';
+function pctT(x){return (x*100).toLocaleString('fr-FR',{maximumFractionDigits:2})+' %'}
+function chgTxt(C){return C.set?eur(C.v)+' / mois (réglé à la main)':C.auto?eur(C.v)+' / mois = moyenne des prélèvements du compte pro hors Urssaf ('+MOIS(C.auto.from)+(C.auto.n>1?' → '+MOIS(C.auto.to):'')+')':eur(C.v)+' / mois (valeur par défaut, en attente d\'un mois complet de banque)'}
+function chgNote(b){var M=b.M;
+  if(M.mgr)return 'Séjours de CdC Manager comptés au mois d\'arrivée du chien (même règle que son Bilan financier) · Urssaf = CA déclaré × '+pctT(MGR.taux)+' (Paramètres › Fiscal de CdC Manager) · Charges : '+chgTxt(M.chg)+'. La banque ne sert pas ici : un chèque déposé en retard ne crée pas de faux creux.';
+  if(!M.nHist)return 'Chiffres réels de l\'appli (banque + saisies).';
   return '* Mois de l\'onglet Historique : encaissements et Urssaf saisis, charges '+(M.chgSet?'réglées à la main':'estimées (moyenne des dépenses lues depuis le départ de l\'appli)')+' : '+eur(M.chgHist)+' / mois. Réglable dans « Mes réglages ». Les autres mois : chiffres réels de l\'appli.'}
 function barCalc(s,b){
   var r=b.M.rows.filter(function(x){return x.k===SU.bar})[0];
   if(!r)return '<p class="note">Touchez une barre pour voir son calcul.</p>';
+  if(r.src==='mgr')return '<div class="bcalc"><b>'+r.m+' '+r.k.slice(0,4)+'</b> <span class="note">(CdC Manager · '+r.n+' séjour'+(r.n>1?'s':'')+')</span>'+
+    '<div class="kv"><span>Séjours arrivés ce mois-là</span><b class="num">'+eur(r.dep)+'</b><span>Urssaf ('+pctT(MGR.taux)+' de '+eur(r.decl)+' déclarés)</span><b class="num">− '+eur(r.urs)+'</b>'+
+    '<span>Charges (prélèvements)</span><b class="num">− '+eur(r.chg)+'</b><span><b>Reste pour le salaire</b></span><b class="num">'+eur(r.d)+'</b></div></div>';
   return '<div class="bcalc"><b>'+r.m+' '+r.k.slice(0,4)+'</b> '+(r.src==='hist'?'<span class="note">(onglet Historique)</span>':'<span class="note">(suivi par l\'appli)</span>')+
     '<div class="kv"><span>Encaissements</span><b class="num">'+eur(r.dep)+'</b><span>Urssaf</span><b class="num">− '+eur(r.urs)+'</b>'+
     '<span>Autres dépenses'+(r.src==='hist'?' (estimées)':'')+'</span><b class="num">− '+eur(r.chg)+'</b><span><b>Reste pour le salaire</b></span><b class="num">'+eur(r.d)+'</b></div></div>';
 }
 function creux(s,x){
   if(!(s.worst>0))return '<div class="story ok"><b>☀️ Pas de période creuse</b><p>Chaque mois rapporte au moins '+eur(x)+' : le salaire ne puise jamais dans les économies.</p></div>';
-  var per=s.rows.slice(s.ws,s.wi+1),n=per.length;
+  var per=creuxRows(s),n=per.length;
   return '<div class="story"><b>🌧️ La période creuse : '+periode(s)+'</b>'+
     '<p>'+(n===1?'Ce mois-là':'Pendant ces '+n+' mois')+', l\'activité ne rapporte pas assez pour payer '+eur(x)+' :</p>'+
     '<div class="steps">'+per.map(function(r){return '<span class="'+(r.r<0?'neg':'pos')+'">'+r.m+' '+sgE(r.r)+'</span>'}).join('')+'</div>'+
@@ -1224,6 +1275,7 @@ function renderSim(){
   var h='<div class="subtabs" role="tablist"><button role="tab" aria-selected="'+(SU.sv==='sal')+'" onclick="SU.sv=\'sal\';renderSim()"><b>Salaire</b><small>au fil des mois</small></button>'+
     '<button role="tab" aria-selected="'+(SU.sv==='tar')+'" onclick="SU.sv=\'tar\';renderSim()"><b>Tarifs</b><small>projections</small></button></div>';
   var b=simBase();
+  if(MGR&&!MGR.ok&&MGR.err)h+='<div class="card"><p class="note">⚠ CdC Manager n\'a pas pu être lu : '+esc(MGR.err)+' Le calcul utilise l\'onglet Historique en attendant. Menu du Sheet CdC Finance › « Tester la lecture de CdC Manager ».</p></div>';
   if(!b.ok)h+='<div class="card"><p class="note">Pas encore assez de mois pour calculer ('+b.M.n+' sur 12). Complétez l\'onglet « Historique » du Google Sheet (encaissements et Urssaf des mois avant l\'appli), ou attendez quelques mois de données.</p></div>';
   else h+=SU.sv==='tar'?simTar(b):simSal(b);
   el.innerHTML=h;
@@ -1285,7 +1337,7 @@ function simSal(b){
     '<p class="verdict">En rejouant les '+b.M.n+' derniers mois avec <b>'+eur(x)+' par mois</b> : '+(s.rows.length-s.short)+' mois '+(s.rows.length-s.short>1?'paient':'paie')+' le salaire, '+s.short+' '+(s.short>1?'ne suffisent pas':'ne suffit pas')+'. '+
       'Sur une année, la trésorerie '+(s.year>=0?'gagne <b>~'+eur(Math.round(s.year/100)*100)+'</b>.':'perd <b>~'+eur(Math.round(-s.year/100)*100)+'</b>.')+
       (s.year<0?' Pour tenir ce salaire : ~'+sejours(-s.year/12,b).pm+' séjours de plus par mois.':'')+'</p>'+
-    '<h3 class="sh3">Ce que rapporte chaque mois (après Urssaf et charges)</h3>'+
+    '<h3 class="sh3">Ce que rapporte chaque mois (après Urssaf et charges)</h3>'+(b.mgr?'<p class="note">Les 12 derniers mois, de '+MOIS(b.M.rows[0].k)+' '+b.M.rows[0].k.slice(0,4)+' à '+MOIS(b.M.rows[11].k)+' '+b.M.rows[11].k.slice(0,4)+', d\'après CdC Manager.</p>':'')+
     axisChart(s.rows.map(function(r){return {k:r.k,v:Math.max(0,r.d),c:r.r>=0?'var(--m-sout)':'var(--short)',m:r.m,t:r.m+' : '+eur(r.d)+' disponibles'}}),{H:180,k:6,line:x,lineLbl:'salaire '+eur(x),tap:'simBar',sel:SU.bar})+
     '<p class="note"><i class="dot" style="background:var(--m-sout)"></i>le mois paie le salaire &nbsp; <i class="dot" style="background:var(--short)"></i>le mois ne suffit pas : on puise dans les économies</p>'+
     barCalc(s,b)+
@@ -1296,6 +1348,7 @@ function simSal(b){
       s.rows.map(function(r){return '<span>'+r.m+' '+r.k.slice(2,4)+'</span><span class="num">'+eur(r.dep)+'</span><span class="num">− '+eur(r.urs)+'</span><span class="num'+(r.src==='hist'?' muted':'')+'">− '+eur(r.chg)+(r.src==='hist'?'*':'')+'</span><b class="num" style="color:'+(r.r>=0?'var(--plus)':'var(--s-warn)')+'">'+eur(r.d)+'</b>'}).join('')+'</div>'+
       '<p class="note">'+chgNote(b)+'</p></details></div>';
   // 3. réglages
+  var SD=sejDef(b);
   var diff=t.tamp-t.conseil,expl='';
   if(t.manual){
     if(diff<0)expl='<div class="expl warn">Votre tampon ('+eur(t.tamp)+') est plus bas que le conseillé ('+eur(t.conseil)+'). Pendant une période creuse comme celle '+(t.worst>0?periode({rows:t.rows,ws:t.ws,wi:t.wi}).replace(/^de /,'de '):'')+', la trésorerie pourrait descendre jusqu\'à ~'+eur(-diff)+' sous zéro avant que l\'alerte orange ne prévienne.</div>';
@@ -1310,14 +1363,16 @@ function simSal(b){
     '<div class="srow"><label for="sim-goal">Objectif</label><input type="text" id="sim-goal" inputmode="decimal" value="'+S.goal+'" onchange="setGoal(this.value);refresh()"></div>'+
     '<p class="note">Le salaire visé. Sert seulement à mesurer le chemin qui reste (c\'est aussi l\'objectif de la Synthèse).</p>'+
     '<div class="srow"><span>Urssaf</span><div class="frow">'+seg('urs','mois','Mensuelle')+seg('urs','trim','Trimestrielle')+'</div></div>'+
-    '<p class="note">À garder sur le Compte entreprise : '+eur(t.bfr)+'. Au-dessus, l\'accueil propose de mettre le surplus sur le Livret A.</p>'+
+    '<p class="note">À garder sur le Compte entreprise : '+eur(t.bfr)+(t.due?' = Urssaf déjà due et pas encore prélevée ('+eur(t.due.v)+' : séjours arrivés depuis le 1er '+MOIS(t.due.from)+(t.due.trim?', elle grossit jusqu\'à la fin du trimestre':'')+') + prélèvements du mois ('+eur(b.chg)+') + 100 € de marge':'')+'. Au-dessus, l\'accueil propose de mettre le surplus sur le Livret A.</p>'+
     inp('tamp','Tampon d\'alerte',t.conseil)+
     '<p class="note">Conseillé : <b>'+eur(t.conseil)+'</b> pour un salaire de '+eur(b.act)+(t.worst>0?' = la période creuse de l\'année (il y manque '+eur(t.worst)+', '+periode({rows:t.rows,ws:t.ws,wi:t.wi})+') + un mois d\'Urssaf et de charges ('+eur(t.uc)+')':' (au moins un mois de salaire)')+'. Laisser vide pour suivre le conseillé, qui se met à jour chaque mois.</p>'+expl+
     '<div class="kv"><span>🟠 Alerte orange sous (tampon)</span><b class="num">'+eur(t.tamp)+'</b><span>🔴 Alerte rouge sous (1 mois de salaire)</span><b class="num">'+eur(t.red)+'</b></div>'+
-    '<h3 class="sh3">Séjours</h3>'+inp('prix','Prix moyen d\'un séjour',SIMDEF.prix)+inp('sej','Séjours par mois aujourd\'hui',SIMDEF.sej)+
-    '<p class="note">D\'après CdC Manager 2026 : 32 246 € pour 215 séjours (≈ 150 € le séjour, ≈ 18 par mois). Sert à traduire un manque de chiffre d\'affaires en séjours.</p>'+
-    inp('chg','Charges / mois pour les mois de l\'historique',b.M.appAvg!=null?Math.round(b.M.appAvg):SIMDEF.chg)+
-    '<p class="note">Les mois de l\'onglet Historique n\'ont que les encaissements et l\'Urssaf : on y retire une estimation des autres dépenses (assurance, frais, fournitures…). '+(b.M.appAvg!=null?'Laisser vide = la moyenne des dépenses lues par la banque depuis le départ de l\'appli, hors Urssaf, salaires et virements vers le Livret A : <b>'+eur(b.M.appAvg)+' / mois</b>. ':'')+'Mettre 0 pour ne rien retirer. Les mois suivis par l\'appli utilisent toujours leurs vraies dépenses.</p>');
+    '<h3 class="sh3">Séjours</h3>'+inp('prix','Prix moyen d\'un séjour',SD.prix)+inp('sej','Séjours par mois aujourd\'hui',SD.sej)+
+    '<p class="note">'+(SD.mgr?'Laisser vide = CdC Manager sur 12 mois : '+eur(SD.prix)+' le séjour, '+SD.sej+' séjours par mois.':'Par défaut ≈ 150 € le séjour, ≈ 18 par mois.')+' Sert à traduire un manque de chiffre d\'affaires en séjours.</p>'+
+    (b.M.mgr?inp('chg','Charges / mois',Math.round(chgVal().auto?chgVal().auto.v:+SIMDEF.chg))+
+      '<p class="note">Retirées de chaque mois. Laisser vide = la moyenne des <b>prélèvements</b> du compte pro, hors Urssaf'+(chgAuto()?' : <b>'+eur(chgAuto().v)+' / mois</b> ('+MOIS(chgAuto().from)+(chgAuto().n>1?' → '+MOIS(chgAuto().to):'')+')':'')+'. Les retraits d\'espèces, paiements carte et dépenses ponctuelles ne comptent pas.</p>'
+    :inp('chg','Charges / mois pour les mois de l\'historique',b.M.appAvg!=null?Math.round(b.M.appAvg):SIMDEF.chg)+
+    '<p class="note">Les mois de l\'onglet Historique n\'ont que les encaissements et l\'Urssaf : on y retire une estimation des autres dépenses (assurance, frais, fournitures…). '+(b.M.appAvg!=null?'Laisser vide = la moyenne des dépenses lues par la banque depuis le départ de l\'appli, hors Urssaf, salaires et virements vers le Livret A : <b>'+eur(b.M.appAvg)+' / mois</b>. ':'')+'Mettre 0 pour ne rien retirer. Les mois suivis par l\'appli utilisent toujours leurs vraies dépenses.</p>'));
   return h;
 }
 function setSim(k,v){
@@ -1331,9 +1386,17 @@ function setSim(k,v){
 function pct(x){return (x*100).toLocaleString('fr-FR',{maximumFractionDigits:1})+' %'}
 function prixN(p,h){p=+p;return p?(p*(1+h)).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €':''}
 function prixUp(p,h){p=+p;return Math.ceil(p*(1+h)*2-1e-9)/2}
+/* base des tarifs : CdC Manager (12 derniers mois, prix des Paramètres) sinon réglages */
+function tarBase(){
+  var M=simMonths();
+  if(M.mgr)return {cb:M.box,cm:M.mai,ns:M.nsej||1,pb:MGR.pb||+SP('pb'),pm:MGR.pm||+SP('pm'),mgr:true,from:M.rows[0].k,to:M.rows[11].k};
+  return {cb:+SP('cab'),cm:+SP('cam'),ns:+SP('nsej')||1,pb:+SP('pb'),pm:+SP('pm')};
+}
+function PXb(){var T=tarBase();return T.pb||''}
+function PXm(){var T=tarBase();return T.pm||''}
 function simTar(b){
   if(!SU.tgt)SU.tgt=String(Math.round(b.goal));
-  var CB=+SP('cab'),CM=+SP('cam'),NS=+SP('nsej');
+  var TB=tarBase(),CB=TB.cb,CM=TB.cm,NS=TB.ns;
   function seg(k,v,l){return '<button class="tg" aria-pressed="'+(SU[k]===v)+'" onclick="SU.'+k+'=\''+v+'\';renderSim()">'+l+'</button>'}
   var h='<div class="card sc"><b class="ft">Que faire des tarifs ?</b><div class="seg2">'+seg('mode','vise','Je vise un salaire')+seg('mode','hausse','Je fixe une hausse')+'</div>'+
     '<p class="note">'+(SU.mode==='vise'?'Indiquez le salaire voulu : l\'appli calcule la hausse de tarif nécessaire.':'Réglez la hausse des box et de la maison : l\'appli calcule ce qu\'elle rapporte et le salaire possible.')+'</p>';
@@ -1342,9 +1405,17 @@ function simTar(b){
     h+='<div class="srow"><label for="sim-tg">Salaire visé par mois</label><input type="text" id="sim-tg" inputmode="decimal" value="'+esc(SU.tgt)+'" onchange="SU.tgt=this.value.replace(/\\D/g,\'\');renderSim()"></div>'+
       '<div class="frow">'+ch(b.goal,'Objectif')+ch(b.act,'Actuel')+'</div>'+
       '<span class="note">Hausse appliquée sur</span><div class="frow">'+seg('split','tout','Box + maison')+seg('split','box','Box seulement')+seg('split','mai','Maison seulement')+'</div>';
-  }else h+=slider('hb','Box',SP('pb'),CB)+slider('hm','Maison',SP('pm'),CM);
+  }else h+=slider('hb','Box',PXb(),CB)+slider('hm','Maison',PXm(),CM);
   h+='</div><div id="tar-out">'+tarOut(b)+'</div>';
   function inp(k,lab){return '<div class="srow"><label for="sim-'+k+'">'+lab+'</label><input type="text" id="sim-'+k+'" inputmode="decimal" value="'+esc(SP(k))+'" onchange="setSim(\''+k+'\',this.value)"></div>'}
+  if(TB.mgr){
+    h+=fold('base','Base de calcul','CdC Manager · 12 derniers mois · prix actuels',
+      '<div class="kv"><span>Chiffre d\'affaires box</span><b class="num">'+eur(CB)+'</b><span>Chiffre d\'affaires maison</span><b class="num">'+eur(CM)+'</b><span>Séjours</span><b class="num">'+NS+'</b>'+
+      '<span class="muted">Séjour moyen</span><span class="num muted">'+eur((CB+CM)/NS)+'</span>'+
+      '<span>Prix d\'une nuit en box</span><b class="num">'+(TB.pb?e2(TB.pb):'—')+'</b><span>Prix d\'une nuit à la maison</span><b class="num">'+(TB.pm?e2(TB.pm):'—')+'</b></div>'+
+      '<p class="note">Lu automatiquement dans CdC Manager : séjours arrivés de '+MOIS(TB.from)+' '+TB.from.slice(0,4)+' à '+MOIS(TB.to)+' '+TB.to.slice(0,4)+' (un séjour mixte compte moitié box, moitié maison), prix Standard de Paramètres › Tarification. Urssaf : '+pctT(MGR.taux)+' du déclaré.'+(MGR.at?' Lu le '+new Date(MGR.at).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'.':'')+'</p>');
+    return h;
+  }
   h+=fold('base','Base de calcul','chiffre d\'affaires de référence · prix actuels',
     inp('cab','Chiffre d\'affaires box (12 mois)')+inp('cam','Chiffre d\'affaires maison (12 mois)')+inp('nsej','Nombre de séjours (12 mois)')+
     '<p class="note">Par défaut : année 2026 de CdC Manager (janvier → décembre, réservations à venir comprises : 25 558 € box, 6 688 € maison, 215 séjours). Ce sont des valeurs fixes : à mettre à jour une fois par an.</p>'+
@@ -1353,9 +1424,9 @@ function simTar(b){
   return h;
 }
 /* hausse réglée en euros par nuit (pas de 0,50 €) quand le prix est connu, sinon en % */
-function hPct(k){var p=+SP(k==='hb'?'pb':'pm'),v=+SU[k]||0;return p?v/p:v/100}
+function hPct(k){var p=+(k==='hb'?PXb():PXm()),v=+SU[k]||0;return p?v/p:v/100}
 function e2(n){return n.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'}
-function slTxt(k){var p=+SP(k==='hb'?'pb':'pm'),v=+SU[k]||0;return p?'+ '+e2(v)+' <span class="note">(+ '+pct(v/p)+')</span>':'+ '+v+' %'}
+function slTxt(k){var p=+(k==='hb'?PXb():PXm()),v=+SU[k]||0;return p?'+ '+e2(v)+' <span class="note">(+ '+pct(v/p)+')</span>':'+ '+v+' %'}
 function slider(k,lab,p,ca){
   p=+p;var v=+SU[k]||0,mx=p?Math.max(5,Math.ceil(p*0.5*2)/2):30;if(v>mx)v=SU[k]=mx;
   return '<div class="sl"><div class="srow"><label for="r-'+k+'"><b>'+lab+'</b> <span class="note">('+eur(ca)+' / an)</span></label><b class="num" id="o-'+k+'">'+slTxt(k)+'</b></div>'+
@@ -1363,18 +1434,18 @@ function slider(k,lab,p,ca){
     '<p class="note" id="p-'+k+'">'+(p?'Nuit : '+e2(p)+' → <b>'+e2(p+v)+'</b>':'Indiquez le prix d\'une nuit dans « Base de calcul » pour régler la hausse par 0,50 €.')+'</p></div>';
 }
 function tarOut(b){
-  var CB=+SP('cab'),CM=+SP('cam'),CT=CB+CM,NS=+SP('nsej')||1,h='';
+  var TB=tarBase(),CB=TB.cb,CM=TB.cm,CT=CB+CM,NS=TB.ns||1,h='';
   if(SU.mode==='vise'){
     var tgt=+SU.tgt||b.goal,need=Math.max(0,tgt-b.sout),ca=need*12/(1-b.tx);
     if(!need)return '<div class="card sc"><p class="verdict">✓ <b>'+eur(tgt)+' par mois</b> est déjà possible avec les tarifs actuels (soutenable : '+eur(b.sout)+'). Pas besoin d\'augmenter.</p></div>';
     var hb=SU.split==='mai'?0:(SU.split==='box'?ca/CB:ca/CT),hm=SU.split==='box'?0:(SU.split==='mai'?ca/CM:ca/CT),sj=sejours(need,b);
     h='<div class="card sc result"><span class="lbl">Hausse de tarif nécessaire</span>'+
       '<div class="bigline">'+(SU.split==='tout'?'<b>+ '+pct(hb)+'</b> sur tous les tarifs':SU.split==='box'?'<b>+ '+pct(hb)+'</b> sur les box':'<b>+ '+pct(hm)+'</b> sur la maison')+'</div>'+
-      '<div class="kv">'+(hb?'<span>Nuit en box</span><b class="num">'+(+SP('pb')?prixN(SP('pb'),0)+' → '+e2(prixUp(SP('pb'),hb)):'+ '+pct(hb))+'</b>':'')+
-        (hm?'<span>Nuit à la maison</span><b class="num">'+(+SP('pm')?prixN(SP('pm'),0)+' → '+e2(prixUp(SP('pm'),hm)):'+ '+pct(hm))+'</b>':'')+
+      '<div class="kv">'+(hb?'<span>Nuit en box</span><b class="num">'+(+PXb()?prixN(PXb(),0)+' → '+e2(prixUp(PXb(),hb)):'+ '+pct(hb))+'</b>':'')+
+        (hm?'<span>Nuit à la maison</span><b class="num">'+(+PXm()?prixN(PXm(),0)+' → '+e2(prixUp(PXm(),hm)):'+ '+pct(hm))+'</b>':'')+
         '<span>Chiffre d\'affaires en plus</span><b class="num">+ '+eur(up100(ca))+' / an</b><span>Après Urssaf</span><b class="num">+ '+eur(need)+' / mois</b></div>'+
       '<p class="verdict">Pour passer de <b>'+eur(b.sout)+'</b> (soutenable aujourd\'hui) à <b>'+eur(tgt)+'</b> par mois.</p>'+
-      ((hb&&+SP('pb'))||(hm&&+SP('pm'))?'<p class="note">Nouveaux prix arrondis au 0,50 € supérieur.</p>':'')+
+      ((hb&&+PXb())||(hm&&+PXm())?'<p class="note">Nouveaux prix arrondis au 0,50 € supérieur.</p>':'')+
       (SU.split!=='tout'&&(hb>0.3||hm>0.3)?'<div class="expl warn">Hausse forte sur une seule activité : la répartir sur box + maison est plus doux pour les clients.</div>':'')+
       '<p class="note">Autre chemin, sans toucher aux tarifs : ~'+sj.an+' séjours de plus par an (≈ '+sj.pm+' par mois).</p></div>';
   }else{
@@ -1399,7 +1470,7 @@ function tarOut(b){
 function bindTar(){
   document.querySelectorAll('#v-sim input[data-sl]').forEach(function(r){
     r.oninput=function(){var k=r.dataset.sl;SU[k]=r.value;$('o-'+k).innerHTML=slTxt(k);
-      var p=+SP(k==='hb'?'pb':'pm'),e=$('p-'+k);if(e&&p)e.innerHTML='Nuit : '+e2(p)+' → <b>'+e2(p+(+r.value))+'</b>';
+      var p=+(k==='hb'?PXb():PXm()),e=$('p-'+k);if(e&&p)e.innerHTML='Nuit : '+e2(p)+' → <b>'+e2(p+(+r.value))+'</b>';
       $('tar-out').innerHTML=tarOut(simBase())};
   });
 }
@@ -1493,12 +1564,12 @@ function merge(base,loc,srv){
 }
 
 function persist(){
-  var s=JSON.stringify({rev:SY.rev,base:SY.base,data:dataObj(),bank:BK,hist:HIST});
+  var s=JSON.stringify({rev:SY.rev,base:SY.base,data:dataObj(),bank:BK,hist:HIST,mgr:MGR});
   if(s!==SY.saved){lsSet(LS_DATA,s);SY.saved=s}
 }
 (function loadLocal(){
   var r=lsGet(LS_DATA);if(!r)return;
-  try{var o=JSON.parse(r);setData(o.data||{});SY.rev=(o.rev==null)?null:o.rev;SY.base=o.base||null;BK=o.bank||null;HIST=o.hist||[];SY.saved=r}catch(e){}
+  try{var o=JSON.parse(r);setData(o.data||{});SY.rev=(o.rev==null)?null:o.rev;SY.base=o.base||null;BK=o.bank||null;HIST=o.hist||[];MGR=o.mgr||null;SY.saved=r}catch(e){}
 })();
 
 function call(fn,args){
@@ -1548,6 +1619,7 @@ function pull(){
     okSync();SY.sheetUrl=r.sheetUrl||SY.sheetUrl;SY.ver=r.version||SY.ver;
     var bch=r.bank&&JSON.stringify(r.bank)!==JSON.stringify(BK);if(r.bank)BK=r.bank;
     if(r.hist&&JSON.stringify(r.hist)!==JSON.stringify(HIST)){HIST=r.hist;bch=true}
+    if(r.mgr&&JSON.stringify(r.mgr)!==JSON.stringify(MGR)){MGR=r.mgr;bch=true}
     if(r.empty){SY.rev=r.rev||0;SY.base=JSON.stringify(emptyData());persist();SY.first=false;autoRec();if(bch)refresh();paintSync();afterPull();return}
     takeRemote(r.state,r.rev,SY.rev===null);
     if(bch){persist();refresh();if(S.view==='set')renderSet()}
